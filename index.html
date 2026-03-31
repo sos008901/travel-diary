@@ -6,6 +6,7 @@
     <title>Travel Assistant</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#F4F2EE">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
@@ -19,10 +20,12 @@
 <div id="app" v-cloak>
     <div id="app-container" class="bg-washi relative w-full h-full">
         <div v-if="showWizard" class="fixed inset-0 z-[1500] bg-[#2C3032] flex flex-col items-center justify-center p-6 text-white">
-            <h1 class="text-6xl font-serif mb-8">栞</h1>
-            <input v-model="tempDestination" placeholder="目的地" class="bg-transparent border-b border-gray-600 py-2 text-center text-xl mb-6 outline-none">
-            <input type="date" v-model="tempStartDate" class="bg-transparent border-b border-gray-600 py-2 text-center text-lg mb-8 outline-none">
-            <button @click="finishWizard" class="w-full max-w-xs py-4 bg-theme-accent text-theme-main font-bold rounded-xl">開始旅程</button>
+            <h1 class="text-6xl font-serif mb-8 text-white">栞</h1>
+            <div class="w-full max-w-sm space-y-6">
+                <input v-model="tempDestination" placeholder="目的地 (例如: 京都)" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-xl text-white outline-none">
+                <input type="date" v-model="tempStartDate" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-lg text-white outline-none">
+                <button @click="finishWizard" class="w-full py-4 mt-6 bg-theme-accent text-theme-main font-bold rounded-xl">開始旅程</button>
+            </div>
         </div>
 
         <template v-else>
@@ -34,7 +37,7 @@
                 <div v-if="currentTab === 'schedule'" class="p-5">
                     <div class="flex overflow-x-auto no-scrollbar space-x-3 mb-6 pb-2 sticky top-0 bg-[#F4F2EE]/80 backdrop-blur-sm z-30">
                         <button v-for="(day, index) in days" :key="index" @click="currentDayIndex = index" 
-                            :class="['flex-shrink-0 px-4 py-3 rounded-3xl border min-w-[6.2rem] transition-all flex flex-col items-center', currentDayIndex === index ? 'bg-theme-main text-white' : 'bg-white text-gray-400']">
+                            :class="['flex-shrink-0 px-4 py-3 rounded-3xl border min-w-[6.5rem] transition-all flex flex-col items-center', currentDayIndex === index ? 'bg-theme-main text-white' : 'bg-white text-gray-400']">
                             <span class="text-[8px] uppercase mb-1">Day {{ index + 1 }}</span>
                             <span class="text-sm font-serif font-bold">{{ getDayDate(index) }}</span>
                         </button>
@@ -46,22 +49,28 @@
                                 <span class="text-xs font-bold text-theme-accent mr-3">{{ item.time }}</span>
                                 <h3 class="text-lg font-serif font-bold text-theme-main">{{ item.title }}</h3>
                             </div>
-                            <div v-if="item.location" class="text-xs text-gray-400"><i class="fas fa-map-marker-alt mr-1"></i>{{ item.location }}</div>
-                            <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 whitespace-pre-wrap">{{ item.note }}</div>
+                            <div v-if="item.location" class="text-xs text-gray-400 flex items-center">
+                                <i class="fas fa-map-marker-alt mr-1"></i>{{ item.location }}
+                            </div>
+                            <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                                {{ item.note }}
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <div v-if="currentTab === 'money'" class="p-5">
-                    <div class="bg-theme-main text-white p-8 rounded-3xl shadow-xl text-center">
+                    <div class="bg-theme-main text-white p-8 rounded-3xl shadow-xl mb-8 text-center">
                         <p class="text-[10px] tracking-widest text-theme-accent mb-2 uppercase">Grand Total</p>
                         <h2 class="text-5xl font-serif">{{ currencySymbol }} {{ totalExpense.toLocaleString() }}</h2>
-                        <p class="text-xs opacity-60">≈ NT$ {{ toTWD(totalExpense) }}</p>
+                        <p class="text-xs opacity-60 mt-2">≈ NT$ {{ toTWD(totalExpense) }}</p>
                     </div>
                 </div>
             </main>
 
-            <button @click="onFabClick" class="fab-btn z-50"><i class="fas fa-plus"></i></button>
+            <button @click="onFabClick" class="fab-btn z-50">
+                <i class="fas fa-plus text-theme-accent text-2xl"></i>
+            </button>
 
             <nav class="glass-panel absolute bottom-0 w-full h-20 flex justify-around items-center bg-[#F4F2EE]/90 backdrop-blur-lg border-t z-40">
                 <button @click="currentTab='schedule'" :class="currentTab==='schedule'?'text-theme-accent':'text-gray-400'"><i class="fas fa-map-marked-alt text-xl"></i></button>
