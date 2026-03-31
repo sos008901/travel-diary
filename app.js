@@ -155,8 +155,7 @@ createApp({
         // -------------------------
         const getDayDate = (index) => { 
             if(!startDate.value) return ''; 
-            const d = new Date(startDate.value); 
-            d.setDate(d.getDate() + index); 
+            const d = new Date(startDate.value); d.setDate(d.getDate() + index); 
             const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
             return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
         };
