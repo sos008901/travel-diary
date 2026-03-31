@@ -6,124 +6,127 @@
     <title>栞 - Travel Assistant</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#F4F2EE">
+
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=Cinzel:wght@500;700&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <script>
-        tailwind.config = { theme: { extend: { colors: { theme: { main: '#2C3032', accent: '#C5A059', bg: '#F4F2EE' } } } } }
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['"Noto Serif TC"', 'serif'],
+                        display: ['"Cinzel"', '"Noto Serif TC"', 'serif'],
+                        sans: ['"Noto Sans TC"', 'sans-serif'],
+                    },
+                    colors: {
+                        theme: { main: '#2C3032', sub: '#5F6368', accent: '#C5A059', bg: '#F4F2EE', white: '#FFFFFF', border: '#E0E0E0', danger: '#A65652', input: '#F0F2F2' }
+                    }
+                }
+            }
+        }
     </script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
 <div id="app" v-cloak>
-    <div id="app-container" class="bg-washi relative w-full h-full flex flex-col">
-        <div v-if="showWizard" class="fixed inset-0 z-[1500] bg-[#2C3032] flex flex-col items-center justify-center p-6 text-white text-center">
-            <h1 class="text-6xl font-serif mb-8">栞</h1>
-            <div class="w-full max-w-sm space-y-6">
-                <input v-model="tempDestination" placeholder="目的地 (例如: 京都)" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-xl text-white outline-none">
-                <input type="date" v-model="tempStartDate" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-lg text-white outline-none">
-                <button @click="finishWizard" class="w-full py-4 mt-6 bg-theme-accent text-theme-main font-bold rounded-xl">開始旅程</button>
+    <div id="app-container" class="bg-washi relative w-full h-full">
+        
+        <div class="cloud-status" :class="{ 'syncing': isSyncing, 'error': permissionError }">
+            <template v-if="permissionError">
+                 <i class="fas fa-exclamation-triangle"></i> <span>權限錯誤 (請檢查設定)</span>
+            </template>
+            <template v-else>
+                 <i class="fas fa-cloud"></i> <span v-if="isSyncing">Syncing...</span>
+            </template>
+        </div>
+
+        <div v-if="showWizard" class="fixed inset-0 z-[1500] bg-[#2C3032] flex items-center justify-center p-6 text-white text-center">
+            <div class="w-full max-w-sm">
+                <h1 class="text-6xl font-serif mb-8 text-white">栞</h1>
+                <div class="space-y-6">
+                    <input v-model="tempDestination" placeholder="目的地 (例如: 京都)" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-xl text-white outline-none">
+                    <input type="date" v-model="tempStartDate" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-lg text-white outline-none">
+                    <button @click="finishWizard" class="w-full py-4 mt-6 bg-theme-accent text-theme-main font-bold rounded-xl">開始旅程</button>
+                </div>
             </div>
         </div>
 
         <template v-else>
-            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 sticky top-0 bg-[#F4F2EE] z-40">
+            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 z-40 sticky top-0 bg-[#F4F2EE]">
                 <div class="flex justify-between items-end">
                     <div class="border-l-2 border-theme-accent pl-3">
                         <p class="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Destination</p>
                         <h1 class="text-4xl font-serif font-medium text-theme-main">{{ destination }}</h1>
                     </div>
-                    <button @click="showSettingsModal = true" class="text-gray-400 p-2"><i class="fas fa-cog text-xl"></i></button>
+                    <button @click="showSettingsModal = true" class="btn-base icon-btn shrink-0 ml-4">
+                        <i class="fas fa-cog"></i>
+                    </button>
                 </div>
             </header>
 
-            <main class="flex-1 overflow-y-auto pb-32 bg-washi">
+            <main class="flex-1 overflow-y-auto pb-40 relative bg-washi">
                 <div v-if="currentTab === 'schedule'" class="p-5">
-                    <div class="flex overflow-x-auto no-scrollbar space-x-3 mb-6 pb-2 sticky top-0 bg-[#F4F2EE]/80 backdrop-blur-sm z-30">
-                        <button v-for="(day, index) in days" :key="index" @click="currentDayIndex = index" 
-                            :class="['flex-shrink-0 px-4 py-3 rounded-3xl border min-w-[6.8rem] transition-all flex flex-col items-center', currentDayIndex === index ? 'bg-theme-main text-white' : 'bg-white text-gray-400']">
-                            <span class="text-[8px] uppercase mb-1">Day {{ index + 1 }}</span>
-                            <span class="text-sm font-serif font-bold">{{ getDayDate(index) }}</span>
-                        </button>
+                    <div class="sticky top-0 z-30 py-3 bg-[#F4F2EE]/80 backdrop-blur-sm -mx-5 px-5 mb-6">
+                        <div class="flex items-center justify-between">
+                            <div ref="dateContainer" class="flex-1 overflow-x-auto no-scrollbar flex space-x-3 py-1">
+                                <button v-for="(day, index) in days" :key="index" @click="currentDayIndex = index" 
+                                    :class="['flex-shrink-0 px-4 py-3 border transition-all flex flex-col items-center min-w-[6.8rem] rounded-3xl', currentDayIndex === index ? 'bg-theme-main text-white' : 'bg-white text-gray-400 border-transparent']">
+                                    <span class="text-[8px] uppercase mb-1">Day {{ index + 1 }}</span>
+                                    <span class="text-sm font-serif font-bold">{{ getDayDate(index) }}</span>
+                                </button>
+                            </div>
+                            <div class="flex space-x-2 pl-3 border-l ml-2">
+                                <button @click.stop="addDay" class="icon-btn-primary w-8 h-8 rounded-full border flex items-center justify-center"><i class="fas fa-plus"></i></button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="space-y-5">
-                        <div v-for="item in currentDayItems" :key="item.id" class="bg-white p-5 rounded-3xl shadow-sm border-l-4 border-theme-main relative" @click="toggleExpand(item.id)">
+                        <div v-if="currentDayItems.length === 0" class="py-20 text-center opacity-40">尚無行程</div>
+                        <div v-for="item in currentDayItems" :key="item.id" class="bg-white p-5 shadow-sm border-l-4 border-theme-main rounded-3xl group" @click="toggleExpand(item.id)">
                             <div class="flex justify-between items-start">
-                                <div class="flex-1">
+                                <div class="flex-1 min-w-0">
                                     <div class="flex items-baseline mb-1">
                                         <span class="text-xs font-bold text-theme-accent mr-3">{{ item.time }}</span>
                                         <h3 class="text-lg font-serif font-bold text-theme-main">{{ item.title }}</h3>
                                     </div>
                                     <div v-if="item.location" class="text-xs text-gray-400 flex items-center" @click.stop="openMap(item.location)">
-                                        <i class="fas fa-map-marker-alt mr-1"></i><span class="underline decoration-dotted">{{ item.location }}</span>
+                                        <i class="fas fa-map-marker-alt mr-1.5"></i><span class="underline decoration-dotted">{{ item.location }}</span>
                                     </div>
                                 </div>
-                                <button @click.stop="editItem(item)" class="text-gray-300"><i class="fas fa-pen text-xs"></i></button>
+                                <button @click.stop="confirmDeleteItem(item.id)" class="text-gray-200 hover:text-theme-danger p-2"><i class="fas fa-times"></i></button>
                             </div>
-                            <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
-                                {{ item.note }}
-                            </div>
+                            <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ item.note }}</div>
+                            <button @click.stop="editItem(item)" class="absolute right-4 bottom-4 text-gray-300 opacity-0 group-hover:opacity-100 transition"><i class="fas fa-pen text-xs"></i></button>
                         </div>
                     </div>
                 </div>
 
                 <div v-if="currentTab === 'money'" class="p-5">
-                    <div class="bg-theme-main text-white p-8 rounded-3xl shadow-xl mb-8 text-center relative overflow-hidden">
-                        <p class="text-[10px] tracking-widest text-theme-accent mb-2 uppercase">Total Budget</p>
+                    <div class="bg-theme-main text-white p-8 rounded-3xl text-center shadow-xl">
+                        <p class="text-[10px] uppercase tracking-widest text-theme-accent mb-2">Total Budget</p>
                         <h2 class="text-5xl font-serif">{{ currencySymbol }} {{ totalExpense.toLocaleString() }}</h2>
-                        <p class="text-xs opacity-60 mt-2">≈ NT$ {{ toTWD(totalExpense) }}</p>
-                    </div>
-                    <div class="space-y-4">
-                        <div v-for="group in groupedExpenses" :key="group.date" class="bg-white p-4 rounded-2xl shadow-sm">
-                            <h4 class="text-xs font-bold text-gray-400 mb-3 border-b pb-2">{{ group.displayDate }}</h4>
-                            <div v-for="exp in group.items" :key="exp.id" class="flex justify-between py-2" @click="editExpense(exp)">
-                                <div>
-                                    <p class="text-sm font-bold">{{ exp.title }}</p>
-                                    <p class="text-[10px] text-gray-400">{{ exp.payer }} 付款</p>
-                                </div>
-                                <p class="text-sm font-serif font-bold">{{ currencySymbol }} {{ exp.amount }}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div v-if="currentTab === 'memo'" class="p-5">
-                    <div class="space-y-4">
-                        <div v-for="note in sortedNotes" :key="note.id" class="bg-white p-5 rounded-3xl shadow-sm" @click="editNote(note)">
-                            <h3 class="font-bold mb-2">{{ note.title }}</h3>
-                            <p class="text-sm text-gray-500 truncate">{{ note.content }}</p>
-                        </div>
+                        <p class="text-xs opacity-60">≈ NT$ {{ toTWD(totalExpense) }}</p>
                     </div>
                 </div>
             </main>
 
-            <button @click="onFabClick" class="fab-btn z-50 shadow-xl"><i class="fas fa-plus text-theme-accent text-2xl"></i></button>
+            <button @click="onFabClick" class="fab-btn z-50">
+                <i class="fas fa-plus text-theme-accent text-2xl"></i>
+            </button>
 
-            <nav class="glass-panel absolute bottom-0 w-full h-[calc(80px+env(safe-area-inset-bottom))] pb-safe-bottom z-40 flex justify-around items-center bg-[#F4F2EE]/90 backdrop-blur-lg border-t">
-                <button @click="currentTab='schedule'" :class="['flex flex-col items-center flex-1', currentTab==='schedule'?'text-theme-accent':'text-gray-400']">
-                    <i class="fas fa-map-marked-alt text-xl mb-1"></i><span class="text-[9px]">行程</span>
-                </button>
-                <button @click="currentTab='money'" :class="['flex flex-col items-center flex-1', currentTab==='money'?'text-theme-accent':'text-gray-400']">
-                    <i class="fas fa-wallet text-xl mb-1"></i><span class="text-[9px]">記帳</span>
-                </button>
-                <button @click="currentTab='memo'" :class="['flex flex-col items-center flex-1', currentTab==='memo'?'text-theme-accent':'text-gray-400']">
-                    <i class="fas fa-book text-xl mb-1"></i><span class="text-[9px]">備忘</span>
-                </button>
+            <nav class="glass-panel absolute bottom-0 w-full h-20 flex justify-around items-center bg-[#F4F2EE]/90 backdrop-blur-lg border-t z-40">
+                <button @click="currentTab='schedule'" :class="currentTab==='schedule'?'text-theme-accent':'text-gray-400'"><i class="fas fa-map-marked-alt text-xl"></i></button>
+                <button @click="currentTab='money'" :class="currentTab==='money'?'text-theme-accent':'text-gray-400'"><i class="fas fa-wallet text-xl"></i></button>
+                <button @click="currentTab='memo'" :class="currentTab==='memo'?'text-theme-accent':'text-gray-400'"><i class="fas fa-book text-xl"></i></button>
             </nav>
         </template>
-    </div>
-
-    <div v-if="showItemModal || showExpenseModal || showNoteModal || showSettingsModal" class="modal-mask flex items-center justify-center p-6 bg-black/50 fixed inset-0 z-[2000]" @click.self="closeAllModals">
-        <div class="modal-card bg-white p-6 rounded-3xl w-full max-w-sm">
-             <div v-if="showSettingsModal" class="space-y-6">
-                 <h2 class="text-xl font-bold text-center">設定</h2>
-                 <button @click="confirmResetData" class="w-full py-3 bg-red-100 text-red-500 rounded-xl">重置所有資料</button>
-                 <button @click="closeAllModals" class="w-full py-3 bg-gray-100 rounded-xl">關閉</button>
-             </div>
-             <div v-else class="text-center text-gray-400 text-sm py-10">編輯視窗內容... (請使用原本的輸入介面)</div>
-        </div>
     </div>
 </div>
 <script type="module" src="app.js"></script>
