@@ -81,6 +81,8 @@ createApp({
         const formExpense = ref({ id: null, title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: '', time: '', note: '' });
         const formNote = ref({ id: null, title: '', content: '', updatedAt: '', images: [] });
         
+        const rulesText = `rules_version = '2';\nservice cloud.firestore {\nmatch /databases/{database}/documents {\nmatch /{document=**} {\n  allow read, write: if request.auth != null;\n}\n}\n}`;
+
         const instance = getCurrentInstance();
 
         const compressImage = (file) => {
@@ -91,8 +93,7 @@ createApp({
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
                         const MAX_DIM = 1600; 
-                        let width = img.width;
-                        let height = img.height;
+                        let width = img.width; let height = img.height;
                         if (width > height) { if (width > MAX_DIM) { height *= MAX_DIM / width; width = MAX_DIM; } }
                         else { if (height > MAX_DIM) { width *= MAX_DIM / height; height = MAX_DIM; } }
                         canvas.width = width; canvas.height = height;
@@ -116,6 +117,7 @@ createApp({
             let list = expenseFilter.value === 'all' ? [...expenses.value] : expenses.value.filter(e => e.type === expenseFilter.value);
             return list.sort((a, b) => b.id - a.id);
         });
+        const sortedNotes = computed(() => [...notes.value].sort((a, b) => b.id - a.id));
         const statistics = computed(() => {
             let stats = { shared: 0, individual: {} }; travelers.value.forEach(t => stats.individual[t] = 0);
             expenses.value.forEach(exp => {
@@ -131,15 +133,19 @@ createApp({
 
         const toggleExpand = (id) => expandedItemId.value = expandedItemId.value === id ? null : id;
         const toggleExpandNote = (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id; 
+        const toggleDateGroup = (date) => {
+             const idx = collapsedDates.value.indexOf(date);
+             if (idx > -1) collapsedDates.value.splice(idx, 1);
+             else collapsedDates.value.push(date);
+        };
 
         const getDayDate = (index) => { 
             if(!startDate.value) return ''; 
             const d = new Date(startDate.value); 
             d.setDate(d.getDate() + index); 
-            // 新增：星期幾判斷邏輯
-            const weekDays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-            const dayName = weekDays[d.getDay()];
-            return `${d.getMonth() + 1}/${d.getDate()} (${dayName})`; 
+            // 新增：顯示星期幾
+            const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+            return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
         };
 
         const saveToCloud = debounce(async () => {
@@ -172,16 +178,24 @@ createApp({
         const setupFirestoreListener = () => {
             if (unsubscribeSnapshot) return; 
             unsubscribeSnapshot = onSnapshot(tripDocRef, (docSnap) => {
+                permissionError.value = false; 
                 if (docSnap.exists()) {
                     const d = docSnap.data();
                     isRemoteUpdate.value = true;
                     days.value = d.days || [{items:[]}]; 
                     expenses.value = (d.expenses||[]).map(e => ({...e, beneficiaries: e.beneficiaries || [], type: e.type || 'shared'})); 
-                    notes.value = (d.notes || []).map(n => ({ ...n, images: n.images || (n.image ? [n.image] : []) }));
-                    shoppingList.value = (d.shoppingList || []).map(s => ({
-                        ...s,
-                        items: (s.items || []).map(i => ({ ...i, images: i.images || (i.image ? [i.image] : []) }))
-                    }));
+                    notes.value = (d.notes || []).map(n => ({...n, images: n.images || (n.image ? [n.image] : []) }));
+                    
+                    const currentShops = shoppingList.value.reduce((acc, shop) => { acc[shop.id] = shop; return acc; }, {});
+                    let rawShopping = d.shoppingList || [];
+                    shoppingList.value = rawShopping.map(s => {
+                        const local = currentShops[s.id];
+                        return { ...s, items: (s.items || []).map(i => ({...i, images: i.images || (i.image ? [i.image] : []) })),
+                            expanded: local ? local.expanded : (s.expanded !== undefined ? s.expanded : true),
+                            tempItemInput: local ? local.tempItemInput : '', tempImages: local ? local.tempImages : []
+                        };
+                    });
+
                     startDate.value = d.startDate || ''; 
                     destination.value = d.destination || ''; 
                     exchangeRate.value = d.exchangeRate || 0.21; 
@@ -253,34 +267,63 @@ createApp({
              showNoteModal.value = false;
         };
 
-        const exportPDF = () => {
-            showToast('Generating PDF...');
-            const element = document.createElement('div');
-            element.style.padding = '20px';
-            element.style.fontFamily = '"Noto Serif TC", serif';
-            let html = `<div style="text-align:center;"><h1>${destination.value}</h1><p>Trip Record</p></div>`;
-            html += `<h2>Schedule</h2>`;
-            days.value.forEach((day, idx) => {
-                html += `<h3>Day ${idx + 1} - ${getDayDate(idx)}</h3><ul>`;
-                day.items.forEach(item => { html += `<li><strong>${item.time}</strong> ${item.title}</li>`; });
-                html += `</ul>`;
+        const debts = computed(() => {
+            let balances = {}; travelers.value.forEach(t => balances[t] = 0);
+            expenses.value.forEach(exp => {
+                const amt = Number(exp.amount);
+                let benes = exp.type === 'shared' ? (exp.beneficiaries.length > 0 ? exp.beneficiaries : travelers.value) : (exp.beneficiaries.length > 0 ? exp.beneficiaries : [exp.payer]);
+                const split = amt / benes.length;
+                balances[exp.payer] += amt;
+                benes.forEach(b => { balances[b] -= split; });
             });
-            element.innerHTML = html;
-            html2pdf().set({ margin: 15, filename: 'Trip.pdf', jsPDF: { format: 'a4' } }).from(element).save();
-        };
+            let res = [], debtors = [], creditors = [];
+            for (let p in balances) { if (balances[p] < -1) debtors.push({p, a: balances[p]}); if (balances[p] > 1) creditors.push({p, a: balances[p]}); }
+            debtors.sort((a,b) => a.a - b.a); creditors.sort((a,b) => b.a - a.a);
+            let i=0, j=0;
+            while(i<debtors.length && j<creditors.length) {
+                let amt = Math.min(Math.abs(debtors[i].a), creditors[j].a);
+                res.push({from: debtors[i].p, to: creditors[j].p, amount: Math.round(amt)});
+                debtors[i].a += amt; creditors[j].a -= amt;
+                if(Math.abs(debtors[i].a)<1) i++; if(creditors[j].a<1) j++;
+            }
+            return res;
+        });
+
+        const groupedExpenses = computed(() => {
+            const groups = {};
+            filteredExpenses.value.forEach(exp => {
+                const key = exp.date || 'no-date';
+                if(!groups[key]) groups[key] = [];
+                groups[key].push(exp);
+            });
+            return Object.keys(groups).sort((a,b) => b.localeCompare(a)).map(date => {
+                const items = groups[date];
+                return { date, displayDate: date === 'no-date' ? '未設定' : date, items, total: items.reduce((s,i)=>s+Number(i.amount), 0) };
+            });
+        });
 
         return { 
             currentTab, currentDayIndex, days, currentDayItems, totalExpense, filteredExpenses, notes, destination, currencySymbol, startDate, exchangeRate, 
             showWizard, tempDestination, tempStartDate, detectedInfo, finishWizard, detectCurrency: () => {},
-            showItemModal, showExpenseModal, showSettingsModal, showNoteModal, closeAllModals: () => { showItemModal.value = showExpenseModal.value = showNoteModal.value = showSettingsModal.value = showTravelerModal.value = showShoppingEditModal.value = false; },
+            showItemModal, showExpenseModal, showSettingsModal, showNoteModal, closeAllModals: () => { 
+                showItemModal.value = showExpenseModal.value = showNoteModal.value = showSettingsModal.value = showTravelerModal.value = showShoppingEditModal.value = false; 
+            },
             formItem, formExpense, formNote, tempHour, tempMinute, travelers,
             saveItem, saveExpense, saveNote, onFabClick, toTWD, getDayDate,
             toggleExpand, expandedItemId, isEditing, isExpenseEditing, isNoteEditing,
             isSyncing, permissionError, expandedNoteId, toggleExpandNote,
-            shoppingList, newShopName, addShop: () => {}, exportPDF,
-            statistics, debts: computed(() => []), groupedExpenses: computed(() => []), 
-            tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]),
-            showTravelerModal, editingTravelers, viewingImage: ref(null)
+            shoppingList, newShopName, addShop: () => {}, exportPDF: () => {},
+            statistics, debts, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]),
+            showTravelerModal, editingTravelers, viewingImage: ref(null), 
+            openMap: (l) => window.open(l.startsWith('http')?l:`https://www.google.com/maps/search/${encodeURIComponent(l)}`, '_blank'),
+            renderNote: (n) => n, toast, confirmModal, executeConfirm,
+            showShoppingEditModal: ref(false), editForm: ref({}), rulesText, retryConnection: () => location.reload(), copyRules: () => {},
+            onDateDragStart: () => {}, onDateDragMove: () => {}, onDateDragEnd: () => {}, 
+            onTouchDragStart: () => {}, onTouchDragMove: () => {}, onTouchDragEnd: () => {},
+            onMouseDragStart: () => {}, onMouseDragMove: () => {}, onMouseDragEnd: () => {},
+            toggleBeneficiary: () => {}, toggleDateGroup, openTravelerModal: () => {}, addTraveler: () => {}, removeTraveler: () => {}, saveTravelers: () => {},
+            confirmDeleteDay: () => {}, addDay: () => {}, confirmDeleteItem: () => {}, confirmDeleteExpense: () => {}, confirmDeleteNote: () => {},
+            searchGoogleMaps: () => {}
         };
     }
 }).mount('#app');
