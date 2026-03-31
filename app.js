@@ -3,6 +3,9 @@ import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gs
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { createApp, ref, computed, onMounted, watch, nextTick, getCurrentInstance } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
+// ----------------------------------------------------
+// 1. Firebase Configuration & Initialization
+// ----------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyAB21TMFMPr1UCujtMFH2X6OvBYMQb_ff8",
   authDomain: "fukuoka-a41df.firebaseapp.com",
@@ -16,13 +19,20 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
 const TRIP_DOC_ID = "shared_trip_data"; 
 const tripDocRef = doc(db, "trips", TRIP_DOC_ID);
 
+// ----------------------------------------------------
+// 2. Constants & Helpers
+// ----------------------------------------------------
 const CURRENCY_MAP = {
     'japan': { s: '¥', r: 0.21, n: '日幣' }, 'kyoto': { s: '¥', r: 0.21, n: '日幣' }, 'osaka': { s: '¥', r: 0.21, n: '日幣' }, 'tokyo': { s: '¥', r: 0.21, n: '日幣' },
     'usa': { s: '$', r: 32.5, n: '美金' }, 'europe': { s: '€', r: 35.0, n: '歐元' }, 'uk': { s: '£', r: 41.5, n: '英鎊' }, 'korea': { s: '₩', r: 0.024, n: '韓元' },
-    'taiwan': { s: 'NT$', r: 1, n: '台幣' }, 'thailand': { s: '฿', r: 0.9, n: '泰銖' }, 'china': { s: '¥', r: 4.5, n: '人民幣' }
+    'taiwan': { s: 'NT$', r: 1, n: '台幣' }, 'thailand': { s: '฿', r: 0.9, n: '泰銖' }, 'china': { s: '¥', r: 4.5, n: '人民幣' },
+    '日本': { s: '¥', r: 0.21, n: '日幣' }, '京都': { s: '¥', r: 0.21, n: '日幣' }, '大阪': { s: '¥', r: 0.21, n: '日幣' }, '東京': { s: '¥', r: 0.21, n: '日幣' },
+    '美國': { s: '$', r: 32.5, n: '美金' }, '歐洲': { s: '€', r: 35.0, n: '歐元' }, '法國': { s: '€', r: 35.0, n: '歐元' }, '英國': { s: '£', r: 41.5, n: '英鎊' },
+    '韓國': { s: '₩', r: 0.024, n: '韓元' }, '台灣': { s: 'NT$', r: 1, n: '台幣' }, '泰國': { s: '฿', r: 0.9, n: '泰銖' }, '中國': { s: '¥', r: 4.5, n: '人民幣' }
 };
 
 function debounce(func, wait) {
@@ -64,22 +74,16 @@ createApp({
         const isRemoteUpdate = ref(false); 
         const permissionError = ref(false);
         let unsubscribeSnapshot = null;
+
         const tempDestination = ref(''), tempStartDate = ref(''), detectedInfo = ref('');
         const tempHour = ref('09'), tempMinute = ref('00'), tempHourExp = ref('09'), tempMinuteExp = ref('00');
         const formItem = ref({ id: null, time: '', title: '', location: '', note: '', dayIndex: 0, originalDayIndex: 0 });
         const formExpense = ref({ id: null, title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: '', time: '', note: '' });
         const formNote = ref({ id: null, title: '', content: '', updatedAt: '', images: [] });
+        
         const rulesText = `rules_version = '2';\nservice cloud.firestore {\nmatch /databases/{database}/documents {\nmatch /{document=**} {\n  allow read, write: if request.auth != null;\n}\n}\n}`;
-        const instance = getCurrentInstance();
 
-        // 核心修改點：加入星期
-        const getDayDate = (index) => { 
-            if(!startDate.value) return ''; 
-            const d = new Date(startDate.value); 
-            d.setDate(d.getDate() + index); 
-            const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-            return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
-        };
+        const instance = getCurrentInstance();
 
         const compressImage = (file) => {
             return new Promise((resolve) => {
@@ -124,6 +128,22 @@ createApp({
             });
             return stats;
         });
+
+        const toggleExpand = (id) => expandedItemId.value = expandedItemId.value === id ? null : id;
+        const toggleExpandNote = (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id; 
+        const toggleDateGroup = (date) => {
+             const idx = collapsedDates.value.indexOf(date);
+             if (idx > -1) collapsedDates.value.splice(idx, 1);
+             else collapsedDates.value.push(date);
+        };
+
+        const getDayDate = (index) => { 
+            if(!startDate.value) return ''; 
+            const d = new Date(startDate.value); 
+            d.setDate(d.getDate() + index); 
+            const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+            return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
+        };
 
         const saveToCloud = debounce(async () => {
             if (isRemoteUpdate.value) return;
@@ -227,7 +247,7 @@ createApp({
             renderNote: (n) => n, toast, confirmModal, executeConfirm: () => confirmModal.value.show = false, toTWD, getDayDate,
             toggleExpand: (id) => expandedItemId.value = expandedItemId.value === id ? null : id, expandedItemId, isEditing, isExpenseEditing, isNoteEditing,
             onTouchDragStart: () => {}, onTouchDragMove: () => {}, onTouchDragEnd: () => {}, dragIndex: ref(null), dateContainer: ref(null), onDateDragStart: () => {}, onDateDragMove: () => {}, onDateDragEnd: () => {},
-            getMemberDetails: (n) => ({total:0, shared:0, private:0}), statistics, debts, toggleBeneficiary: () => {}, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]), toggleDateGroup: (d) => {},
+            getMemberDetails: (n) => ({total:0, shared:0, private:0}), statistics, debts, toggleBeneficiary: () => {}, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]), toggleDateGroup,
             openTravelerModal: () => showTravelerModal.value = true, editingTravelers, addTraveler: () => editingTravelers.value.push(''), removeTraveler: (i) => editingTravelers.value.splice(i,1), saveTravelers: () => { travelers.value = [...editingTravelers.value]; showTravelerModal.value = false; },
             isSyncing, permissionError, retryConnection: () => location.reload(), rulesText, copyRules: () => {}, expandedNoteId, toggleExpandNote: (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id,
             onMouseDragStart: () => {}, onMouseDragMove: () => {}, onMouseDragEnd: () => {},
