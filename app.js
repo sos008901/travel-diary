@@ -3,6 +3,9 @@ import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gs
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { createApp, ref, computed, onMounted, watch, nextTick, getCurrentInstance } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
+// ----------------------------------------------------
+// 1. Firebase Configuration & Initialization
+// ----------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyAB21TMFMPr1UCujtMFH2X6OvBYMQb_ff8",
   authDomain: "fukuoka-a41df.firebaseapp.com",
@@ -44,7 +47,7 @@ createApp({
         const travelers = ref(['我', '旅伴']);
         const expenses = ref([]);
         const notes = ref([]); 
-        const shoppingList = ref([]);
+        const shoppingList = ref([]); 
         const newShopName = ref('');
         const showShoppingEditModal = ref(false);
         const editForm = ref({ shopId: null, itemId: null, text: '', link: '', note: '', images: [] });
@@ -65,14 +68,13 @@ createApp({
         const editingTravelers = ref([]);
         const isSyncing = ref(false);
         const isRemoteUpdate = ref(false); 
-        const permissionError = ref(false);
+        const permissionError = ref(false); 
         let unsubscribeSnapshot = null;
         const tempDestination = ref(''), tempStartDate = ref(''), detectedInfo = ref('');
         const tempHour = ref('09'), tempMinute = ref('00'), tempHourExp = ref('09'), tempMinuteExp = ref('00');
         const formItem = ref({ id: null, time: '', title: '', location: '', note: '', dayIndex: 0, originalDayIndex: 0 });
         const formExpense = ref({ id: null, title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: '', time: '', note: '' });
         const formNote = ref({ id: null, title: '', content: '', updatedAt: '', images: [] });
-        
         const rulesText = `rules_version = '2';\nservice cloud.firestore {\nmatch /databases/{database}/documents {\nmatch /{document=**} {\n  allow read, write: if request.auth != null;\n}\n}\n}`;
         const instance = getCurrentInstance();
 
@@ -149,11 +151,12 @@ createApp({
         const toTWD = (val) => Math.round(val * exchangeRate.value).toLocaleString();
 
         // -------------------------
-        // 核心修改點：加入星期幾
+        // 核心修改點：加入星期幾 (getDayDate)
         // -------------------------
         const getDayDate = (index) => { 
             if(!startDate.value) return ''; 
-            const d = new Date(startDate.value); d.setDate(d.getDate() + index); 
+            const d = new Date(startDate.value); 
+            d.setDate(d.getDate() + index); 
             const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
             return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
         };
