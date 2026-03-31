@@ -72,6 +72,7 @@ createApp({
         const formItem = ref({ id: null, time: '', title: '', location: '', note: '', dayIndex: 0, originalDayIndex: 0 });
         const formExpense = ref({ id: null, title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: '', time: '', note: '' });
         const formNote = ref({ id: null, title: '', content: '', updatedAt: '', images: [] });
+        
         const rulesText = `rules_version = '2';\nservice cloud.firestore {\nmatch /databases/{database}/documents {\nmatch /{document=**} {\n  allow read, write: if request.auth != null;\n}\n}\n}`;
         const instance = getCurrentInstance();
 
