@@ -65,7 +65,7 @@
         </div>
 
         <template v-else>
-            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 z-40 sticky top-0 flex justify-between items-end shadow-sm transition-all h-[calc(140px+env(safe-area-inset-top))] bg-[#F4F2EE]">
+            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 z-40 sticky top-0 flex justify-between items-end shadow-sm h-[calc(140px+env(safe-area-inset-top))] bg-[#F4F2EE]">
                 <div class="flex-1 min-w-0 mr-4 relative pb-1">
                     <div class="pl-3 border-l-2 border-theme-accent/80 flex flex-col justify-end">
                         <p class="text-[10px] text-gray-400 font-sans font-bold uppercase tracking-[0.25em] mb-1.5 leading-none">Destination</p>
@@ -84,8 +84,8 @@
                         <div class="flex items-center justify-between">
                             <div ref="dateContainer" class="flex-1 overflow-x-auto no-scrollbar flex space-x-3 py-1 px-1">
                                 <button v-for="(day, index) in days" :key="index" @click="currentDayIndex = index" 
-                                    :class="['flex-shrink-0 px-5 py-3 border transition-all duration-300 flex flex-col items-center min-w-[6.5rem] rounded-3xl select-none', currentDayIndex === index ? 'bg-theme-main text-white border-theme-main shadow-lg' : 'bg-white text-theme-sub border-transparent shadow-sm']">
-                                    <span class="text-[8px] font-display tracking-widest uppercase mb-1">Day {{ index + 1 }}</span>
+                                    :class="['snap-center flex-shrink-0 px-5 py-3 border transition-all duration-300 flex flex-col items-center min-w-[6.5rem] relative rounded-3xl select-none', currentDayIndex === index ? 'bg-theme-main text-white border-theme-main shadow-lg' : 'bg-white text-theme-sub border-transparent shadow-sm']">
+                                    <span class="text-[8px] font-display tracking-widest uppercase opacity-80 mb-1">Day {{ index + 1 }}</span>
                                     <span class="text-sm font-serif font-bold">{{ getDayDate(index) }}</span>
                                 </button>
                             </div>
@@ -96,11 +96,15 @@
                         </div>
                     </div>
 
-                    <div class="space-y-5 pb-20">
+                    <div class="space-y-5 pb-20" @touchmove="onTouchDragMove($event)" @touchend="onTouchDragEnd" @mousemove="onMouseDragMove($event)" @mouseup="onMouseDragEnd">
                         <div v-for="(item, idx) in currentDayItems" :key="item.id" 
                             class="bg-white p-5 shadow-card border-l-4 border-theme-main relative group transition-all rounded-3xl flex items-start gap-1 select-none"
-                            @click.stop="toggleExpand(item.id)">
+                            :class="{'ring-1 ring-theme-accent': expandedItemId === item.id, 'dragging': dragIndex === idx}" @click.stop="toggleExpand(item.id)">
                             
+                            <div class="sort-handle flex-shrink-0" :class="{'active-drag': dragIndex === idx}" @touchstart.stop="onTouchDragStart($event, idx)" @mousedown.stop.prevent="onMouseDragStart($event, idx)">
+                                <i class="fas fa-grip-vertical"></i>
+                            </div>
+
                             <div class="flex-1 min-w-0 py-1 transition-all">
                                 <div class="flex justify-between items-start">
                                     <div class="flex-1 min-w-0">
@@ -121,41 +125,68 @@
                     </div>
                 </div>
 
-                <div v-if="currentTab === 'money'" class="p-5">
+                <div v-if="currentTab === 'money'" class="p-5 animate-fade-in">
                     <div class="bg-theme-main text-white p-8 rounded-3xl shadow-xl mb-8 text-center relative overflow-hidden">
                         <p class="text-[10px] tracking-[0.4em] text-theme-accent uppercase mb-4">Grand Total</p>
                         <h2 class="text-5xl font-serif mb-2">{{ currencySymbol }} {{ totalExpense.toLocaleString() }}</h2>
                         <p class="text-xs opacity-60">≈ NT$ {{ toTWD(totalExpense) }}</p>
+                        <button @click.stop="openTravelerModal" class="absolute top-4 right-4 w-8 h-8 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20 transition cursor-pointer"><i class="fas fa-users text-white"></i></button>
                     </div>
+                    
+                    <div v-for="group in groupedExpenses" :key="group.date" class="space-y-2 mb-4">
+                        <div class="flex justify-between items-end px-2 border-b border-dashed border-gray-200 pb-2">
+                             <h4 class="text-xs font-bold text-theme-sub tracking-widest uppercase">{{ group.displayDate }}</h4>
+                             <span class="text-sm font-serif font-bold text-theme-main">{{ currencySymbol }}{{ group.total.toLocaleString() }}</span>
+                        </div>
+                        <div v-for="exp in group.items" :key="exp.id" class="bg-white p-4 shadow-sm rounded-2xl flex justify-between items-center" @click="editExpense(exp)">
+                            <div class="flex-1 min-w-0 pr-4">
+                                <h4 class="font-bold text-theme-main text-sm mb-1 truncate">{{ exp.title }}</h4>
+                                <div class="text-[10px] text-gray-400">{{ exp.payer }} 付款</div>
+                            </div>
+                            <div class="text-right">
+                                <span class="block font-bold text-theme-main">{{ currencySymbol }} {{ Number(exp.amount).toLocaleString() }}</span>
+                            </div>
+                        </div>
                     </div>
+                </div>
 
                 <div v-if="currentTab === 'memo'" class="p-6">
-                    <h2 class="text-2xl font-serif font-bold text-theme-main mb-6 tracking-widest border-b pb-4">備忘錄 & 購物清單</h2>
-                    
+                    <h2 class="text-2xl font-serif font-bold text-theme-main mb-6 tracking-widest border-b pb-4 border-gray-200">備忘錄</h2>
+                    <div class="space-y-4 mb-10">
+                        <div v-for="note in notes" :key="note.id" @click.stop="toggleExpandNote(note.id)" class="bg-white p-6 shadow-sm rounded-3xl">
+                            <h3 class="font-bold text-theme-main text-lg">{{ note.title || '未命名' }}</h3>
+                            <div v-if="expandedNoteId === note.id" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                                <div v-html="renderNote(note.content)"></div>
+                                <button @click.stop="editNote(note)" class="mt-4 block ml-auto text-theme-accent text-xs font-bold">EDIT</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2 class="text-2xl font-serif font-bold text-theme-main mb-6 tracking-widest border-b pb-4 border-gray-200">購物清單</h2>
                     <div class="flex gap-2 mb-6">
                         <input v-model="newShopName" @keyup.enter="addShop" placeholder="新增店家名稱..." class="input-rounded !py-3 flex-1">
                         <button @click="addShop" class="bg-theme-main text-white w-12 rounded-2xl flex items-center justify-center active:scale-95 transition-transform"><i class="fas fa-store"></i></button>
                     </div>
 
                     <div class="space-y-6 pb-20">
-                        <div v-for="shop in shoppingList" :key="shop.id" class="bg-white rounded-3xl shadow-sm overflow-hidden">
-                             <div class="bg-theme-input/50 px-5 py-3 flex justify-between items-center border-b border-gray-100" @click="toggleShop(shop)">
-                                 <h3 class="font-bold text-theme-main font-serif">{{ shop.shopName }}</h3>
+                        <div v-for="shop in shoppingList" :key="shop.id" class="bg-white rounded-3xl shadow-sm border border-transparent hover:border-theme-accent/10 transition-all overflow-hidden">
+                             <div class="bg-theme-input/50 px-5 py-3 flex justify-between items-center border-b border-gray-100 cursor-pointer" @click="toggleShop(shop)">
+                                 <h3 class="font-bold text-theme-main font-serif text-lg">{{ shop.shopName }}</h3>
                                  <button @click.stop="removeShop(shop.id)" class="text-gray-300 hover:text-theme-danger p-1 text-xs">刪除店家</button>
                              </div>
                              <div class="p-4" v-show="shop.expanded">
                                  <div v-for="item in shop.items" :key="item.id" class="flex items-center justify-between p-2">
                                      <div class="flex items-center gap-3 cursor-pointer" @click="toggleItem(shop.id, item)">
-                                         <div :class="['w-5 h-5 rounded border flex items-center justify-center', item.done ? 'bg-theme-accent border-theme-accent' : 'border-gray-300']">
+                                         <div :class="['w-5 h-5 rounded border-2 flex items-center justify-center mr-1 transition-colors', item.done ? 'bg-theme-accent border-theme-accent' : 'border-gray-300']">
                                              <i v-if="item.done" class="fas fa-check text-white text-[10px]"></i>
                                          </div>
                                          <span :class="item.done ? 'text-gray-300 line-through' : 'text-theme-main'">{{ item.text }}</span>
                                      </div>
-                                     <button @click="removeItem(shop.id, item.id)" class="text-gray-200 hover:text-theme-danger"><i class="fas fa-times"></i></button>
+                                     <button @click="removeItem(shop.id, item.id)" class="text-gray-200 hover:text-theme-danger p-1"><i class="fas fa-times"></i></button>
                                  </div>
                                  <div class="flex gap-2 mt-3">
                                      <input v-model="shop.tempItemInput" @keyup.enter="addItemToShop(shop)" placeholder="新增商品..." class="flex-1 bg-gray-50 px-4 py-2 rounded-xl text-sm outline-none">
-                                     <button @click="addItemToShop(shop)" class="bg-theme-main text-white px-4 rounded-xl shadow-md"><i class="fas fa-plus"></i></button>
+                                     <button @click="addItemToShop(shop)" class="bg-theme-main text-white px-4 rounded-xl shadow-md active:scale-95 transition-transform"><i class="fas fa-plus"></i></button>
                                  </div>
                              </div>
                         </div>
@@ -163,7 +194,9 @@
                 </div>
             </main>
 
-            <nav class="glass-panel absolute bottom-0 w-full h-[calc(80px+env(safe-area-inset-bottom))] pb-safe-bottom z-[900] flex justify-around items-center">
+            <button @click="onFabClick" class="fab-btn"><i class="fas fa-plus"></i></button>
+
+            <nav class="glass-panel absolute bottom-0 w-full h-[calc(80px+env(safe-area-inset-bottom))] pb-safe-bottom z-[900] flex justify-around items-center bg-[#F4F2EE]/90 backdrop-blur-lg border-t">
                 <button @click="currentTab='schedule'" :class="['flex flex-col items-center flex-1', currentTab==='schedule'?'text-theme-accent':'text-theme-sub']">
                     <i class="fas fa-map-marked-alt text-xl mb-1"></i><span class="text-[9px] uppercase tracking-widest">Schedule</span>
                 </button>
@@ -182,11 +215,9 @@
                 
                 <div v-if="showItemModal" class="space-y-6">
                     <input v-model="formItem.title" class="input-rounded text-center" placeholder="景點名稱">
-                    <div class="flex flex-col gap-1.5">
-                        <select v-model="formItem.dayIndex" class="input-rounded text-center bg-theme-input outline-none">
-                            <option v-for="(day, idx) in days" :key="idx" :value="idx">Day {{ idx + 1 }} ({{ getDayDate(idx) }})</option>
-                        </select>
-                    </div>
+                    <select v-model="formItem.dayIndex" class="input-rounded text-center bg-theme-input outline-none">
+                        <option v-for="(day, idx) in days" :key="idx" :value="idx">Day {{ idx + 1 }} ({{ getDayDate(idx) }})</option>
+                    </select>
                     <div class="flex items-center bg-theme-input rounded-3xl p-2 px-6">
                         <input v-model="tempHour" type="tel" maxlength="2" class="w-1/2 text-center bg-transparent py-2 text-xl font-bold outline-none" placeholder="09">
                         <span class="font-bold">:</span>
@@ -195,20 +226,31 @@
                     <textarea v-model="formItem.note" class="input-rounded resize-none h-32 leading-relaxed" placeholder="寫下備註..."></textarea>
                     <button @click="saveItem" class="w-full py-4 bg-theme-accent text-white font-bold rounded-3xl shadow-lg active:scale-[0.98] transition-transform">SAVE EVENT</button>
                 </div>
-
+                
                 <div v-if="showExpenseModal" class="space-y-4">
-                     <input v-model="formExpense.title" class="input-rounded text-center" placeholder="消費項目">
-                     <div class="relative">
-                         <span class="absolute left-6 top-1/2 -translate-y-1/2 font-bold">{{ currencySymbol }}</span>
-                         <input v-model="formExpense.amount" type="number" class="input-rounded text-right pr-6 bg-theme-input h-14" placeholder="0">
-                     </div>
-                     <button @click="saveExpense" class="w-full py-4 bg-theme-accent text-white font-bold rounded-3xl shadow-lg active:scale-[0.98] transition-transform">CONFIRM</button>
+                    <input v-model="formExpense.title" class="input-rounded text-center" placeholder="消費項目">
+                    <div class="relative">
+                        <span class="absolute left-6 top-1/2 -translate-y-1/2 font-bold">{{ currencySymbol }}</span>
+                        <input v-model="formExpense.amount" type="number" class="input-rounded text-right pr-6 bg-theme-input h-14" placeholder="0">
+                    </div>
+                    <button @click="saveExpense" class="w-full py-4 bg-theme-accent text-white font-bold rounded-3xl shadow-lg active:scale-[0.98] transition-transform">CONFIRM</button>
                 </div>
 
                 <div v-if="showSettingsModal" class="space-y-6 text-center">
                     <button @click="exportPDF" class="w-full py-3 bg-theme-main text-white font-bold rounded-2xl shadow-md transition-transform active:scale-[0.98] mb-4">EXPORT TO PDF</button>
                     <button @click="confirmResetData" class="w-full py-2 text-theme-danger text-[10px] tracking-widest opacity-60 hover:opacity-100 rounded-2xl">RESET ALL CLOUD DATA</button>
                 </div>
+            </div>
+        </div>
+
+        <div v-if="confirmModal.show" class="modal-mask">
+            <div class="bg-white w-72 p-6 text-center shadow-2xl rounded-3xl">
+                 <h3 class="font-serif font-bold text-theme-main mb-2 text-lg">{{ confirmModal.title }}</h3>
+                 <p class="text-xs text-gray-500 mb-6">{{ confirmModal.message }}</p>
+                 <div class="flex gap-3">
+                     <button @click="confirmModal.show=false" class="flex-1 py-3 rounded-2xl text-theme-sub text-xs bg-gray-100">CANCEL</button>
+                     <button @click="executeConfirm" class="flex-1 py-3 rounded-2xl bg-theme-accent text-white text-xs shadow-lg">CONFIRM</button>
+                 </div>
             </div>
         </div>
     </div>
