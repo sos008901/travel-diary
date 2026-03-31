@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>栞 - Travel Assistant</title>
+    <title>Travel Assistant (雲端版)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#F4F2EE">
@@ -24,8 +24,13 @@
                         sans: ['"Noto Sans TC"', 'sans-serif'],
                     },
                     colors: {
-                        theme: { main: '#2C3032', sub: '#5F6368', accent: '#C5A059', bg: '#F4F2EE', white: '#FFFFFF', border: '#E0E0E0', danger: '#A65652', input: '#F0F2F2' }
-                    }
+                        theme: { 
+                            main: '#2C3032', sub: '#5F6368', accent: '#C5A059', bg: '#F4F2EE', white: '#FFFFFF', border: '#E0E0E0', danger: '#A65652', input: '#F0F2F2'
+                        }
+                    },
+                    boxShadow: { float: '0 15px 30px -5px rgba(0, 0, 0, 0.1)', soft: '0 4px 20px -5px rgba(197, 160, 89, 0.15)', },
+                    spacing: { 'safe-top': 'env(safe-area-inset-top)', 'safe-bottom': 'env(safe-area-inset-bottom)' },
+                    borderRadius: { 'xl': '1rem', '2xl': '1.5rem', '3xl': '2rem', }
                 }
             }
         }
@@ -46,89 +51,80 @@
             </template>
         </div>
 
-        <div v-if="showWizard" class="fixed inset-0 z-[1500] bg-[#2C3032] flex items-center justify-center p-6 text-white text-center">
-            <div class="w-full max-w-sm">
-                <h1 class="text-6xl font-serif mb-8 text-white">栞</h1>
-                <div class="space-y-6">
-                    <input v-model="tempDestination" placeholder="目的地 (例如: 京都)" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-xl text-white outline-none">
-                    <input type="date" v-model="tempStartDate" class="w-full bg-transparent border-b border-gray-600 py-2 text-center text-lg text-white outline-none">
-                    <button @click="finishWizard" class="w-full py-4 mt-6 bg-theme-accent text-theme-main font-bold rounded-xl">開始旅程</button>
-                </div>
-            </div>
-        </div>
-
         <template v-else>
-            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 z-40 sticky top-0 bg-[#F4F2EE]">
-                <div class="flex justify-between items-end">
-                    <div class="border-l-2 border-theme-accent pl-3">
-                        <p class="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Destination</p>
-                        <h1 class="text-4xl font-serif font-medium text-theme-main">{{ destination }}</h1>
+            <header class="glass-panel pt-[calc(env(safe-area-inset-top)+40px)] px-6 pb-5 z-40 sticky top-0 flex justify-between items-end shadow-sm transition-all h-[calc(140px+env(safe-area-inset-top))]">
+                <div class="flex-1 min-w-0 mr-4 relative pb-1">
+                    <div class="pl-3 border-l-2 border-theme-accent/80 flex flex-col justify-end">
+                        <p class="text-[10px] text-gray-400 font-sans font-bold uppercase tracking-[0.25em] mb-1.5 leading-none">Destination</p>
+                        <h1 class="text-4xl font-serif font-medium tracking-widest text-theme-main leading-none overflow-visible whitespace-nowrap">{{ destination }}</h1>
                     </div>
-                    <button @click="showSettingsModal = true" class="btn-base icon-btn shrink-0 ml-4">
-                        <i class="fas fa-cog"></i>
-                    </button>
                 </div>
+                <button @click="showSettingsModal = true" class="btn-base icon-btn mb-2 shrink-0 ml-4">
+                    <i class="fas fa-cog"></i>
+                </button>
             </header>
 
-            <main class="flex-1 overflow-y-auto pb-40 relative bg-washi">
-                <div v-if="currentTab === 'schedule'" class="p-5">
-                    <div class="sticky top-0 z-30 py-3 bg-[#F4F2EE]/80 backdrop-blur-sm -mx-5 px-5 mb-6">
+            <main class="flex-1 overflow-y-auto overflow-x-hidden pb-40 relative bg-washi">
+                <div v-if="currentTab === 'schedule'" class="p-5 min-h-full">
+                    <div class="sticky top-0 z-30 py-3 -mx-5 px-5 bg-gradient-to-b from-[#F4F2EE] via-[#F4F2EE] to-transparent mb-6">
                         <div class="flex items-center justify-between">
-                            <div ref="dateContainer" class="flex-1 overflow-x-auto no-scrollbar flex space-x-3 py-1">
+                            <div ref="dateContainer" class="flex-1 overflow-x-auto no-scrollbar flex space-x-3 py-1 px-1 snap-x">
                                 <button v-for="(day, index) in days" :key="index" @click="currentDayIndex = index" 
-                                    :class="['flex-shrink-0 px-4 py-3 border transition-all flex flex-col items-center min-w-[6.8rem] rounded-3xl', currentDayIndex === index ? 'bg-theme-main text-white' : 'bg-white text-gray-400 border-transparent']">
-                                    <span class="text-[8px] uppercase mb-1">Day {{ index + 1 }}</span>
+                                    :class="['snap-center flex-shrink-0 px-5 py-3 border transition-all duration-300 flex flex-col items-center min-w-[6.2rem] relative rounded-3xl select-none', currentDayIndex === index ? 'bg-theme-main text-white border-theme-main shadow-lg' : 'bg-white text-theme-sub border-transparent shadow-sm']">
+                                    <span class="text-[8px] font-display tracking-widest uppercase opacity-80 mb-1">Day {{ index + 1 }}</span>
                                     <span class="text-sm font-serif font-bold">{{ getDayDate(index) }}</span>
                                 </button>
+                                <div class="w-2 flex-shrink-0"></div>
                             </div>
-                            <div class="flex space-x-2 pl-3 border-l ml-2">
-                                <button @click.stop="addDay" class="icon-btn-primary w-8 h-8 rounded-full border flex items-center justify-center"><i class="fas fa-plus"></i></button>
+                            <div class="flex space-x-2 pl-3 border-l border-gray-200 ml-2">
+                                <button @click.stop="confirmDeleteDay" class="icon-btn-danger"><i class="fas fa-minus"></i></button>
+                                <button @click.stop="addDay" class="icon-btn-primary"><i class="fas fa-plus"></i></button>
                             </div>
                         </div>
                     </div>
 
-                    <div class="space-y-5">
-                        <div v-if="currentDayItems.length === 0" class="py-20 text-center opacity-40">尚無行程</div>
-                        <div v-for="item in currentDayItems" :key="item.id" class="bg-white p-5 shadow-sm border-l-4 border-theme-main rounded-3xl group" @click="toggleExpand(item.id)">
-                            <div class="flex justify-between items-start">
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-baseline mb-1">
-                                        <span class="text-xs font-bold text-theme-accent mr-3">{{ item.time }}</span>
-                                        <h3 class="text-lg font-serif font-bold text-theme-main">{{ item.title }}</h3>
+                    <div class="space-y-5 pb-20">
+                        <div v-for="(item, idx) in currentDayItems" :key="item.id" 
+                            class="bg-white p-5 shadow-card border-l-4 border-theme-main relative group transition-all rounded-3xl flex items-start gap-1 select-none"
+                            @click.stop="toggleExpand(item.id)">
+                            <div class="flex-1 min-w-0 py-1 transition-all">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-baseline mb-1">
+                                            <span class="text-xs font-display font-bold text-theme-accent mr-3">{{ item.time }}</span>
+                                            <h3 class="text-lg font-serif font-bold text-theme-main tracking-wide">{{ item.title }}</h3>
+                                        </div>
+                                        <div v-if="item.location" class="flex items-center text-xs text-gray-500 underline decoration-dotted">{{ item.location }}</div>
                                     </div>
-                                    <div v-if="item.location" class="text-xs text-gray-400 flex items-center" @click.stop="openMap(item.location)">
-                                        <i class="fas fa-map-marker-alt mr-1.5"></i><span class="underline decoration-dotted">{{ item.location }}</span>
-                                    </div>
+                                    <button @click.stop="confirmDeleteItem(item.id)" class="text-gray-300 p-2"><i class="fas fa-times"></i></button>
                                 </div>
-                                <button @click.stop="confirmDeleteItem(item.id)" class="text-gray-200 hover:text-theme-danger p-2"><i class="fas fa-times"></i></button>
+                                <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-3 border-t border-dashed border-gray-200 text-sm text-gray-600 font-sans leading-relaxed whitespace-pre-wrap">{{ item.note }}</div>
                             </div>
-                            <div v-if="expandedItemId === item.id && item.note" class="mt-4 pt-4 border-t border-dashed text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{{ item.note }}</div>
-                            <button @click.stop="editItem(item)" class="absolute right-4 bottom-4 text-gray-300 opacity-0 group-hover:opacity-100 transition"><i class="fas fa-pen text-xs"></i></button>
                         </div>
                     </div>
                 </div>
 
-                <div v-if="currentTab === 'money'" class="p-5">
-                    <div class="bg-theme-main text-white p-8 rounded-3xl text-center shadow-xl">
-                        <p class="text-[10px] uppercase tracking-widest text-theme-accent mb-2">Total Budget</p>
-                        <h2 class="text-5xl font-serif">{{ currencySymbol }} {{ totalExpense.toLocaleString() }}</h2>
-                        <p class="text-xs opacity-60">≈ NT$ {{ toTWD(totalExpense) }}</p>
-                    </div>
-                </div>
+                <div v-if="currentTab === 'money'" class="p-5">...</div>
+                <div v-if="currentTab === 'memo'" class="p-5">...</div>
             </main>
 
-            <button @click="onFabClick" class="fab-btn z-50">
-                <i class="fas fa-plus text-theme-accent text-2xl"></i>
-            </button>
-
-            <nav class="glass-panel absolute bottom-0 w-full h-20 flex justify-around items-center bg-[#F4F2EE]/90 backdrop-blur-lg border-t z-40">
-                <button @click="currentTab='schedule'" :class="currentTab==='schedule'?'text-theme-accent':'text-gray-400'"><i class="fas fa-map-marked-alt text-xl"></i></button>
-                <button @click="currentTab='money'" :class="currentTab==='money'?'text-theme-accent':'text-gray-400'"><i class="fas fa-wallet text-xl"></i></button>
-                <button @click="currentTab='memo'" :class="currentTab==='memo'?'text-theme-accent':'text-gray-400'"><i class="fas fa-book text-xl"></i></button>
+            <nav class="glass-panel absolute bottom-0 w-full h-[calc(80px+env(safe-area-inset-bottom))] pb-safe-bottom z-[900] flex justify-around items-center">
+                <button @click="currentTab='schedule'" :class="['flex flex-col items-center flex-1', currentTab==='schedule'?'text-theme-accent':'text-theme-sub']">
+                    <i class="fas fa-map-marked-alt text-xl mb-1"></i><span class="text-[9px] uppercase tracking-widest">Schedule</span>
+                </button>
+                <button @click="currentTab='money'" :class="['flex flex-col items-center flex-1', currentTab==='money'?'text-theme-accent':'text-theme-sub']">
+                    <i class="fas fa-wallet text-xl mb-1"></i><span class="text-[9px] uppercase tracking-widest">Budget</span>
+                </button>
+                <button @click="currentTab='memo'" :class="['flex flex-col items-center flex-1', currentTab==='memo'?'text-theme-accent':'text-theme-sub']">
+                    <i class="fas fa-book text-xl mb-1"></i><span class="text-[9px] uppercase tracking-widest">Memo</span>
+                </button>
             </nav>
         </template>
+
+        ...
     </div>
 </div>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>
