@@ -3,9 +3,6 @@ import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gs
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { createApp, ref, computed, onMounted, watch, nextTick, getCurrentInstance } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
-// ----------------------------------------------------
-// 1. Firebase Configuration & Initialization
-// ----------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyAB21TMFMPr1UCujtMFH2X6OvBYMQb_ff8",
   authDomain: "fukuoka-a41df.firebaseapp.com",
@@ -19,13 +16,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-
 const TRIP_DOC_ID = "shared_trip_data"; 
 const tripDocRef = doc(db, "trips", TRIP_DOC_ID);
 
-// ----------------------------------------------------
-// 2. Constants & Helpers
-// ----------------------------------------------------
 const CURRENCY_MAP = {
     'japan': { s: '¥', r: 0.21, n: '日幣' }, 'kyoto': { s: '¥', r: 0.21, n: '日幣' }, 'osaka': { s: '¥', r: 0.21, n: '日幣' }, 'tokyo': { s: '¥', r: 0.21, n: '日幣' },
     'usa': { s: '$', r: 32.5, n: '美金' }, 'europe': { s: '€', r: 35.0, n: '歐元' }, 'uk': { s: '£', r: 41.5, n: '英鎊' }, 'korea': { s: '₩', r: 0.024, n: '韓元' },
@@ -82,8 +75,16 @@ createApp({
         const formNote = ref({ id: null, title: '', content: '', updatedAt: '', images: [] });
         
         const rulesText = `rules_version = '2';\nservice cloud.firestore {\nmatch /databases/{database}/documents {\nmatch /{document=**} {\n  allow read, write: if request.auth != null;\n}\n}\n}`;
-
         const instance = getCurrentInstance();
+
+        // 核心功能：加入星期幾
+        const getDayDate = (index) => { 
+            if(!startDate.value) return ''; 
+            const d = new Date(startDate.value); 
+            d.setDate(d.getDate() + index); 
+            const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+            return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
+        };
 
         const compressImage = (file) => {
             return new Promise((resolve) => {
@@ -99,8 +100,7 @@ createApp({
                         canvas.width = width; canvas.height = height;
                         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, width, height);
                         let quality = 0.9; let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        const MAX_CHAR_LENGTH = 1200000; 
-                        while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.5) { quality -= 0.1; dataUrl = canvas.toDataURL('image/jpeg', quality); }
+                        while (dataUrl.length > 1200000 && quality > 0.5) { quality -= 0.1; dataUrl = canvas.toDataURL('image/jpeg', quality); }
                         resolve(dataUrl); 
                     };
                     img.src = e.target.result;
@@ -111,10 +111,7 @@ createApp({
 
         const currentDayItems = computed(() => days.value[currentDayIndex.value]?.items || []);
         const totalExpense = computed(() => expenses.value.reduce((sum, exp) => sum + Number(exp.amount), 0));
-        const filteredExpenses = computed(() => {
-            let list = expenseFilter.value === 'all' ? [...expenses.value] : expenses.value.filter(e => e.type === expenseFilter.value);
-            return list.sort((a, b) => b.id - a.id);
-        });
+        const filteredExpenses = computed(() => (expenseFilter.value === 'all' ? [...expenses.value] : expenses.value.filter(e => e.type === expenseFilter.value)).sort((a, b) => b.id - a.id));
         const sortedNotes = computed(() => [...notes.value].sort((a, b) => b.id - a.id));
         const statistics = computed(() => {
             let stats = { shared: 0, individual: {} }; travelers.value.forEach(t => stats.individual[t] = 0);
@@ -129,39 +126,15 @@ createApp({
             return stats;
         });
 
-        const toggleExpand = (id) => expandedItemId.value = expandedItemId.value === id ? null : id;
-        const toggleExpandNote = (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id; 
-        const toggleDateGroup = (date) => {
-             const idx = collapsedDates.value.indexOf(date);
-             if (idx > -1) collapsedDates.value.splice(idx, 1);
-             else collapsedDates.value.push(date);
-        };
-
-        const getDayDate = (index) => { 
-            if(!startDate.value) return ''; 
-            const d = new Date(startDate.value); 
-            d.setDate(d.getDate() + index); 
-            const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-            return `${d.getMonth() + 1}/${d.getDate()} (${weekdays[d.getDay()]})`; 
-        };
-
         const saveToCloud = debounce(async () => {
-            if (isRemoteUpdate.value) return;
-            isSyncing.value = true;
+            if (isRemoteUpdate.value) return; isSyncing.value = true;
             try {
-                const dataToSave = {
-                    days: JSON.parse(JSON.stringify(days.value)), expenses: JSON.parse(JSON.stringify(expenses.value)),
-                    notes: JSON.parse(JSON.stringify(notes.value)), shoppingList: JSON.parse(JSON.stringify(shoppingList.value)), 
-                    startDate: startDate.value, destination: destination.value, exchangeRate: exchangeRate.value,
-                    currencySymbol: currencySymbol.value, travelers: JSON.parse(JSON.stringify(travelers.value))
-                };
+                const dataToSave = { days: JSON.parse(JSON.stringify(days.value)), expenses: JSON.parse(JSON.stringify(expenses.value)), notes: JSON.parse(JSON.stringify(notes.value)), shoppingList: JSON.parse(JSON.stringify(shoppingList.value)), startDate: startDate.value, destination: destination.value, exchangeRate: exchangeRate.value, currencySymbol: currencySymbol.value, travelers: JSON.parse(JSON.stringify(travelers.value)) };
                 await setDoc(tripDocRef, dataToSave, { merge: true }); isSyncing.value = false;
             } catch (e) { if (e.code === 'permission-denied') permissionError.value = true; isSyncing.value = false; }
         }, 800);
 
-        watch([days, expenses, notes, shoppingList, startDate, destination, exchangeRate, currencySymbol, travelers], () => {
-            if (!isRemoteUpdate.value) saveToCloud();
-        }, { deep: true });
+        watch([days, expenses, notes, shoppingList, startDate, destination, exchangeRate, currencySymbol, travelers], () => { if (!isRemoteUpdate.value) saveToCloud(); }, { deep: true });
 
         const setupFirestoreListener = () => {
             if (unsubscribeSnapshot) return; 
@@ -169,95 +142,70 @@ createApp({
                 permissionError.value = false; 
                 if (docSnap.exists()) {
                     const d = docSnap.data(); isRemoteUpdate.value = true;
-                    days.value = d.days || [{items:[]}]; 
-                    expenses.value = (d.expenses||[]).map(e => ({...e, beneficiaries: e.beneficiaries || [], type: e.type || 'shared'})); 
+                    days.value = d.days || [{items:[]}]; expenses.value = d.expenses || [];
                     notes.value = (d.notes || []).map(n => ({...n, images: n.images || (n.image ? [n.image] : []) }));
                     const currentShops = shoppingList.value.reduce((acc, shop) => { acc[shop.id] = shop; return acc; }, {});
                     shoppingList.value = (d.shoppingList || []).map(s => {
                         const local = currentShops[s.id];
-                        return { ...s, items: (s.items || []).map(i => ({...i, images: i.images || (i.image ? [i.image] : []) })),
-                            expanded: local ? local.expanded : (s.expanded !== undefined ? s.expanded : true),
-                            tempItemInput: local ? local.tempItemInput : '', tempImages: local ? local.tempImages : []
-                        };
+                        return { ...s, items: (s.items || []).map(i => ({...i, images: i.images || (i.image ? [i.image] : []) })), expanded: local ? local.expanded : (s.expanded !== undefined ? s.expanded : true), tempItemInput: local ? local.tempItemInput : '', tempImages: local ? local.tempImages : [] };
                     });
-                    startDate.value = d.startDate || ''; destination.value = d.destination || ''; 
-                    exchangeRate.value = d.exchangeRate || 0.21; currencySymbol.value = d.currencySymbol || '¥'; 
-                    travelers.value = d.travelers || ['我', '旅伴'];
-                    showWizard.value = !(destination.value && startDate.value);
-                    nextTick(() => isRemoteUpdate.value = false);
+                    startDate.value = d.startDate || ''; destination.value = d.destination || ''; exchangeRate.value = d.exchangeRate || 0.21; currencySymbol.value = d.currencySymbol || '¥'; travelers.value = d.travelers || ['我', '旅伴'];
+                    showWizard.value = !(destination.value && startDate.value); nextTick(() => isRemoteUpdate.value = false);
                 } else { showWizard.value = true; }
             });
         };
 
-        onMounted(() => {
-            onAuthStateChanged(auth, (user) => {
-                if (user) setupFirestoreListener();
-                else signInAnonymously(auth).catch(() => setupFirestoreListener());
-            });
-        });
+        onMounted(() => { onAuthStateChanged(auth, (user) => { if (user) setupFirestoreListener(); else signInAnonymously(auth).catch(() => setupFirestoreListener()); }); });
 
-        const showToast = (msg) => { toast.value = { show: true, message: msg }; setTimeout(() => toast.value.show = false, 3000); };
-        const triggerConfirm = (title, msg, cb) => { confirmModal.value = { show: true, title, message: msg, callback: cb }; };
-        const toTWD = (val) => Math.round(val * exchangeRate.value).toLocaleString();
-        
         const debts = computed(() => {
             let balances = {}; travelers.value.forEach(t => balances[t] = 0);
             expenses.value.forEach(exp => {
-                const amt = Number(exp.amount);
-                let benes = exp.type === 'shared' ? (exp.beneficiaries.length > 0 ? exp.beneficiaries : travelers.value) : (exp.beneficiaries.length > 0 ? exp.beneficiaries : [exp.payer]);
-                const split = amt / benes.length;
-                balances[exp.payer] += amt; benes.forEach(b => balances[b] -= split);
+                const amt = Number(exp.amount); let benes = exp.type === 'shared' ? (exp.beneficiaries.length > 0 ? exp.beneficiaries : travelers.value) : (exp.beneficiaries.length > 0 ? exp.beneficiaries : [exp.payer]);
+                const split = amt / benes.length; balances[exp.payer] += amt; benes.forEach(b => balances[b] -= split);
             });
             let res = [], debtors = [], creditors = [];
             for (let p in balances) { if (balances[p] < -1) debtors.push({p, a: balances[p]}); if (balances[p] > 1) creditors.push({p, a: balances[p]}); }
-            let i=0, j=0;
-            while(i<debtors.length && j<creditors.length) {
-                let amt = Math.min(Math.abs(debtors[i].a), creditors[j].a);
-                res.push({from: debtors[i].p, to: creditors[j].p, amount: Math.round(amt)});
-                debtors[i].a += amt; creditors[j].a -= amt;
-                if(Math.abs(debtors[i].a)<1) i++; if(creditors[j].a<1) j++;
+            let i=0, j=0; while(i<debtors.length && j<creditors.length) {
+                let amt = Math.min(Math.abs(debtors[i].a), creditors[j].a); res.push({from: debtors[i].p, to: creditors[j].p, amount: Math.round(amt)});
+                debtors[i].a += amt; creditors[j].a -= amt; if(Math.abs(debtors[i].a)<1) i++; if(creditors[j].a<1) j++;
             }
             return res;
         });
 
         const groupedExpenses = computed(() => {
-            const groups = {};
-            filteredExpenses.value.forEach(exp => { const key = exp.date || 'no-date'; if(!groups[key]) groups[key] = []; groups[key].push(exp); });
-            return Object.keys(groups).sort((a,b) => b.localeCompare(a)).map(date => ({
-                date, displayDate: date === 'no-date' ? '未設定' : date, items: groups[date], total: groups[date].reduce((s,i)=>s+Number(i.amount), 0)
-            }));
+            const groups = {}; filteredExpenses.value.forEach(exp => { const key = exp.date || 'no-date'; if(!groups[key]) groups[key] = []; groups[key].push(exp); });
+            return Object.keys(groups).sort((a,b) => b.localeCompare(a)).map(date => ({ date, displayDate: date === 'no-date' ? '未設定' : date, items: groups[date], total: groups[date].reduce((s,i)=>s+Number(i.amount), 0) }));
         });
 
         return { 
             currentTab, currentDayIndex, days, currentDayItems, totalExpense, filteredExpenses, notes, sortedNotes, destination, currencySymbol, startDate, exchangeRate, 
             showWizard, tempDestination, tempStartDate, detectedInfo, finishWizard: () => { if(tempDestination.value && tempStartDate.value) { destination.value = tempDestination.value; startDate.value = tempStartDate.value; showWizard.value = false; } }, detectCurrency: () => {},
-            showItemModal, showExpenseModal, showSettingsModal, showNoteModal, showTravelerModal, 
-            closeAllModals: () => { showItemModal.value = showExpenseModal.value = showNoteModal.value = showSettingsModal.value = showTravelerModal.value = showShoppingEditModal.value = false; },
-            getModalTitle: () => "Modal", formItem, formExpense, formNote, tempHour, tempMinute, travelers,
-            saveItem, saveExpense, saveNote, editItem: (i) => { formItem.value = {...i, dayIndex: currentDayIndex.value}; showItemModal.value = true; isEditing.value=true; },
-            editExpense: (e) => { formExpense.value = {...e}; showExpenseModal.value = true; isExpenseEditing.value=true; },
+            showItemModal, showExpenseModal, showSettingsModal, showNoteModal, showTravelerModal, closeAllModals: () => { showItemModal.value = showExpenseModal.value = showNoteModal.value = showSettingsModal.value = showTravelerModal.value = showShoppingEditModal.value = false; },
+            getModalTitle: () => "編輯", formItem, formExpense, formNote, tempHour, tempMinute, travelers,
+            saveItem, saveExpense, saveNote, editItem: (i) => { formItem.value = {...i, dayIndex: currentDayIndex.value, originalDayIndex: currentDayIndex.value}; [tempHour.value, tempMinute.value] = i.time.split(':'); showItemModal.value = true; isEditing.value=true; },
+            editExpense: (e) => { formExpense.value = {...e}; if(e.time) [tempHourExp.value, tempMinuteExp.value] = e.time.split(':'); showExpenseModal.value = true; isExpenseEditing.value=true; },
             editNote: (n) => { formNote.value = {...n}; showNoteModal.value = true; isNoteEditing.value=true; },
             confirmDeleteItem: (id) => { days.value[currentDayIndex.value].items = days.value[currentDayIndex.value].items.filter(i => i.id !== id); },
             confirmDeleteExpense: (id) => { expenses.value = expenses.value.filter(e => e.id !== id); showExpenseModal.value = false; },
             confirmDeleteNote: (id) => { notes.value = notes.value.filter(n => n.id !== id); showNoteModal.value = false; },
             onFabClick, confirmResetData: () => { startDate.value=''; destination.value=''; showWizard.value=true; },
             addDay: () => days.value.push({items:[]}), confirmDeleteDay: () => days.value.pop(),
-            openMap: (l) => window.open(l.startsWith('http')?l:`https://www.google.com/maps/search/${encodeURIComponent(l)}`, '_blank'),
-            searchGoogleMaps: (q) => window.open(`https://www.google.com/maps/search/${encodeURIComponent(q)}`, '_blank'),
+            openMap: (l) => window.open(l.startsWith('http')?l:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l)}`, '_blank'),
+            searchGoogleMaps: (q) => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, '_blank'),
             renderNote: (n) => n, toast, confirmModal, executeConfirm: () => confirmModal.value.show = false, toTWD, getDayDate,
             toggleExpand: (id) => expandedItemId.value = expandedItemId.value === id ? null : id, expandedItemId, isEditing, isExpenseEditing, isNoteEditing,
             onTouchDragStart: () => {}, onTouchDragMove: () => {}, onTouchDragEnd: () => {}, dragIndex: ref(null), dateContainer: ref(null), onDateDragStart: () => {}, onDateDragMove: () => {}, onDateDragEnd: () => {},
-            getMemberDetails: (n) => ({total:0, shared:0, private:0}), statistics, debts, toggleBeneficiary: () => {}, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]), toggleDateGroup,
-            openTravelerModal: () => showTravelerModal.value = true, editingTravelers, addTraveler: () => editingTravelers.value.push(''), removeTraveler: (i) => editingTravelers.value.splice(i,1), saveTravelers: () => { travelers.value = [...editingTravelers.value]; showTravelerModal.value = false; },
-            isSyncing, permissionError, retryConnection: () => location.reload(), rulesText, copyRules: () => {}, expandedNoteId, toggleExpandNote: (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id,
+            getMemberDetails: (n) => ({total: (statistics.value.shared/travelers.value.length)+(statistics.value.individual[n]||0), shared: statistics.value.shared/travelers.value.length, private: statistics.value.individual[n]||0}), statistics, debts, toggleBeneficiary: (n) => { if(!formExpense.value.beneficiaries.includes(n)) formExpense.value.beneficiaries.push(n); else formExpense.value.beneficiaries = formExpense.value.beneficiaries.filter(b=>b!==n); }, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats: ref(true), collapsedDates: ref([]), toggleDateGroup: (d) => { if(collapsedDates.value.includes(d)) collapsedDates.value = collapsedDates.value.filter(x=>x!==d); else collapsedDates.value.push(d); },
+            openTravelerModal: () => { editingTravelers.value = [...travelers.value]; showTravelerModal.value = true; }, editingTravelers, addTraveler: () => editingTravelers.value.push('新旅伴'), removeTraveler: (i) => editingTravelers.value.splice(i,1), saveTravelers: () => { travelers.value = [...editingTravelers.value]; showTravelerModal.value = false; },
+            isSyncing, permissionError, retryConnection: () => location.reload(), rulesText, copyRules: () => { navigator.clipboard.writeText(rulesText); }, expandedNoteId, toggleExpandNote: (id) => expandedNoteId.value = expandedNoteId.value === id ? null : id,
             onMouseDragStart: () => {}, onMouseDragMove: () => {}, onMouseDragEnd: () => {},
             shoppingList, newShopName, addShop: () => { shoppingList.value.push({id:Date.now(), shopName:newShopName.value, items:[], expanded:true}); newShopName.value=''; },
             removeShop: (id) => { shoppingList.value = shoppingList.value.filter(s => s.id !== id); },
-            addItemToShop: (s) => { s.items.push({id:Date.now(), text:s.tempItemInput, done:false}); s.tempItemInput=''; },
-            removeItem: (sid, iid) => { const s = shoppingList.value.find(x=>x.id===sid); s.items = s.items.filter(i=>i.id!==iid); },
-            toggleItem: (sid, i) => i.done = !i.done, toggleShop: (s) => s.expanded = !s.expanded, enableShopRename: (s) => {}, saveShopRename: (s) => {},
-            showShoppingEditModal: ref(false), editForm: ref({}), openEditItemModal: () => {}, saveEditItem: () => {},
-            onNoteImageChange: () => {}, onShopItemImageChange: () => {}, onEditItemImageChange: () => {}, viewingImage, viewImage: (s) => viewingImage.value=s, triggerFileInput: () => {}, exportPDF: () => {}
+            addItemToShop: (s) => { if(!s.tempItemInput) return; s.items.push({id:Date.now(), text:s.tempItemInput, done:false}); s.tempItemInput=''; },
+            removeItem: (sid, iid) => { const s = shoppingList.value.find(x=>x.id===sid); if(s) s.items = s.items.filter(i=>i.id!==iid); },
+            toggleItem: (sid, i) => i.done = !i.done, toggleShop: (s) => s.expanded = !s.expanded, enableShopRename: (s) => { s.isRenaming = true; }, saveShopRename: (s) => { s.isRenaming = false; },
+            showShoppingEditModal: ref(false), editForm: ref({}), openEditItemModal: (sid, i) => { editForm.value = {shopId: sid, itemId: i.id, text: i.text, note: i.note}; showShoppingEditModal.value = true; }, saveEditItem: () => { const s = shoppingList.value.find(x=>x.id===editForm.value.shopId); const i = s.items.find(x=>x.id===editForm.value.itemId); i.text = editForm.value.text; i.note = editForm.value.note; showShoppingEditModal.value = false; },
+            onNoteImageChange: async (e) => { for(let f of e.target.files) formNote.value.images.push(await compressImage(f)); }, onShopItemImageChange: () => {}, onEditItemImageChange: () => {}, viewingImage, viewImage: (s) => viewingImage.value=s, triggerFileInput: (r) => instance.refs[r].click(), exportPDF: () => { window.print(); }
         };
     }
 }).mount('#app');
