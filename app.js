@@ -263,7 +263,7 @@ createApp({
         const onMouseDragEnd = () => { dragIndex.value = null; dragActive.value = false; document.body.style.cursor = ''; };
         
         // -------------------------------------------------------------------
-        // 終極修正版：確保 Google Maps 連結完全合法且能觸發 App
+        // 最終修正：完全正確的 Google Maps 網頁版通用連結
         // -------------------------------------------------------------------
         const openMap = (loc) => { 
             if (!loc) return; 
@@ -278,7 +278,8 @@ createApp({
                 const finalUrl = /^https?:\/\//i.test(cleanLoc) ? cleanLoc : 'https://' + cleanLoc;
                 window.open(finalUrl, '_blank');
             } else {
-                // 使用 Google 官方推薦的跨平台地圖搜尋 API 格式，並確實加上 $ 符號解析變數！
+                // 正確的 Google Maps 官方通用網址 (Universal Link)
+                // 這樣會先開啟網頁版，然後手機系統會自動攔截或詢問是否開啟 App
                 const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLoc)}`;
                 window.open(mapUrl, '_blank');
             }
