@@ -303,10 +303,13 @@
                                 <div v-for="exp in group.items" :key="exp.id" class="bg-white p-4 shadow-sm border-b border-gray-100 flex justify-between items-center btn-base rounded-2xl" @click="editExpense(exp)">
                                     <div class="flex-1 min-w-0 pr-4">
                                         <h4 class="font-bold text-theme-main font-serif text-sm mb-1 truncate">{{ exp.title }}</h4>
-                                        <div class="flex items-center text-[10px] text-gray-400 space-x-2 font-sans">
+                                        <div class="flex items-center text-[10px] text-gray-400 space-x-2 font-sans mb-1">
                                             <span>{{ exp.payer }} 付款</span>
                                             <span class="w-px h-2 bg-gray-300"></span>
                                             <span>{{ exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費') }}</span>
+                                        </div>
+                                        <div v-if="exp.note" class="text-[11px] text-gray-400 font-sans truncate mt-0.5">
+                                            <i class="fas fa-quote-left text-[8px] mr-1 text-theme-accent/50"></i>{{ exp.note }}
                                         </div>
                                     </div>
                                     <div class="text-right flex-shrink-0">
@@ -404,7 +407,7 @@
                                                 </div>
                                             </div>
                                             
-                                            <a v-if="item.link" :href="item.link" target="_blank" class="w-8 h-8 flex items-center justify-center text-theme-accent/70 hover:text-theme-accent bg-theme-accent/5 rounded-full mr-1 transition-colors" @click.stop>
+                                            <a v-if="item.link" :href="formatUrl(item.link)" target="_blank" class="w-8 h-8 flex items-center justify-center text-theme-accent/70 hover:text-theme-accent bg-theme-accent/5 rounded-full mr-1 transition-colors" @click.stop>
                                                 <i class="fas fa-link text-xs"></i>
                                             </a>
 
@@ -630,6 +633,16 @@
                          </div>
                      </div>
                      
+                     <div class="space-y-2">
+                         <label class="input-label justify-center !ml-0">Note (備註)</label>
+                         <div class="relative">
+                             <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                                 <i class="fas fa-pen text-xs"></i>
+                             </div>
+                             <input v-model="formExpense.note" class="input-rounded rounded-3xl pl-10 text-sm font-sans bg-theme-input" placeholder="例如：晚餐、車票、買給家人的禮物...">
+                         </div>
+                     </div>
+
                      <div class="space-y-2">
                          <label class="input-label justify-center !ml-0">付款人 Payer</label>
                          <div class="flex gap-3 justify-center">
