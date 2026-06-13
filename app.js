@@ -263,12 +263,13 @@ createApp({
         const onMouseDragEnd = () => { dragIndex.value = null; dragActive.value = false; document.body.style.cursor = ''; };
         
         // -------------------------------------------------------------------
-        // 最終完美版：真正 Google 官方支援的地圖網址
+        // 最終修正：真正 Google Maps 官方 API 的搜尋網址
         // -------------------------------------------------------------------
         const openMap = (loc) => { 
             if (!loc) return; 
             const cleanLoc = loc.trim();
-            // 判斷是否為網址
+            
+            // 判斷是否為網頁連結
             const isUrl = /^https?:\/\//i.test(cleanLoc) || 
                           /^www\./i.test(cleanLoc) || 
                           /\.(com|tw|jp|co|gl|net|io|org)\b/i.test(cleanLoc) || 
@@ -278,8 +279,8 @@ createApp({
                 const finalUrl = /^https?:\/\//i.test(cleanLoc) ? cleanLoc : 'https://' + cleanLoc;
                 window.open(finalUrl, '_blank');
             } else {
-                // 使用 Google Maps 官方標準的 Universal Search 網址
-                // 保證能夠正確打開地圖，不會再發生無效網址的問題！
+                // 使用 Google 官方開發者文件的標準跨平台網址：
+                // 這樣絕對會在瀏覽器開啟「Google Maps 網頁版搜尋結果」
                 const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLoc)}`;
                 window.open(mapUrl, '_blank');
             }
