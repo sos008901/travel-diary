@@ -92,22 +92,7 @@
                 <p class="text-xs text-gray-600 mb-4 leading-relaxed">
                     這是因為 Firebase 的「安全規則」擋住了連線。<br>請複製下方的規則並貼到 Firebase 後台。
                 </p>
-                
-                <div class="text-left text-xs bg-gray-50 p-3 rounded-xl mb-4 text-gray-600 border border-gray-200">
-                    <p class="font-bold mb-1">步驟：</p>
-                    <ol class="list-decimal list-inside space-y-1 mb-2">
-                        <li>前往 Firebase Console > Firestore Database</li>
-                        <li>點選上方 <strong>Rules (規則)</strong> 分頁</li>
-                        <li>將裡面的內容替換為：</li>
-                    </ol>
-                    <div class="code-block relative">
-                        <button @click="copyRules" class="absolute top-1 right-1 bg-white border border-gray-300 rounded px-2 py-0.5 text-[9px] hover:bg-gray-100 text-theme-main">複製</button>
-                        {{ rulesText }}
-                    </div>
-                    <p class="mt-2 text-[10px] text-gray-400">* 別忘了也要開啟 Authentication > Sign-in method > Anonymous (匿名登入)</p>
-                </div>
-                
-                <button @click="retryConnection" class="w-full py-3 bg-theme-main text-white rounded-xl text-sm font-bold shadow-lg shadow-theme-main/20">設定好了，重試連線</button>
+                <button @click="retryConnection" class="w-full py-3 bg-theme-main text-white rounded-xl text-sm font-bold shadow-lg shadow-theme-main/20 mt-4">設定好了，重試連線</button>
             </div>
         </div>
 
@@ -144,9 +129,18 @@
                         <h1 class="text-4xl font-serif font-medium tracking-widest text-theme-main leading-none overflow-visible whitespace-nowrap">{{ destination }}</h1>
                     </div>
                 </div>
-                <button @click="showSettingsModal = true" class="btn-base icon-btn mb-2 shrink-0 ml-4">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-                </button>
+                
+                <div class="flex items-center gap-2 mb-2 shrink-0 ml-4">
+                    <button @click="showHistoryModal = true" class="btn-base icon-btn">
+                        <i class="fas fa-folder-open"></i>
+                    </button>
+                    <button @click="copyShareLink" class="btn-base icon-btn text-theme-accent border-theme-accent/30 bg-theme-accent/5">
+                        <i class="fas fa-link"></i>
+                    </button>
+                    <button @click="showSettingsModal = true" class="btn-base icon-btn">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
             </header>
 
             <main class="flex-1 overflow-y-auto overflow-x-hidden pb-40 relative bg-washi" @click="expandedItemId = null; expandedNoteId = null">
@@ -519,11 +513,39 @@
                     <span class="text-[9px] font-display tracking-widest uppercase">Budget</span>
                 </button>
                 <button @click="currentTab='memo'" :class="['flex flex-col items-center flex-1 py-1 btn-base', currentTab==='memo'?'text-theme-accent':'text-theme-sub']">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 20V20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
                     <span class="text-[9px] font-display tracking-widest uppercase">Memo</span>
                 </button>
             </nav>
         </template>
+
+        <div v-if="showHistoryModal" class="modal-mask" @click.self="closeAllModals">
+            <div class="modal-card">
+                <h3 class="text-center text-lg font-serif font-bold text-theme-main tracking-widest mb-6 border-b border-gray-100 pb-4">我的旅程</h3>
+                <div class="space-y-3 max-h-[50vh] overflow-y-auto no-scrollbar pb-4">
+                    <div v-if="tripHistory.length === 0" class="text-center text-gray-400 text-xs py-4">
+                        尚無其他旅程紀錄
+                    </div>
+                    <div v-for="trip in tripHistory" :key="trip.id"
+                         class="bg-white border border-gray-100 rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-theme-accent/50 transition cursor-pointer"
+                         @click="switchTrip(trip.id)">
+                        <div>
+                            <div class="font-bold text-theme-main font-serif">{{ trip.dest || '未命名旅程' }}</div>
+                            <div class="text-[10px] text-gray-400 font-sans mt-1">{{ trip.date || '無日期' }}</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span v-if="trip.id === TRIP_DOC_ID" class="text-[9px] bg-theme-accent/10 text-theme-accent px-2 py-1 rounded-full font-bold">當前</span>
+                            <button @click.stop="deleteFromHistory(trip.id)" v-if="trip.id !== TRIP_DOC_ID" class="text-gray-300 hover:text-theme-danger p-2 transition">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <button @click="confirmResetData" class="w-full py-4 mt-2 border border-dashed border-theme-accent/50 text-theme-accent text-xs font-bold rounded-2xl hover:bg-theme-accent/5 transition">
+                    + 開啟全新旅程
+                </button>
+            </div>
+        </div>
 
         <div v-if="showItemModal || showExpenseModal || showNoteModal || showSettingsModal || showTravelerModal || showShoppingEditModal" class="modal-mask" @click.self="closeAllModals">
             <div class="modal-card">
@@ -726,25 +748,28 @@
                      <div><label class="input-label justify-center !ml-0">Currency</label><input v-model="currencySymbol" class="input-rounded rounded-2xl font-mono text-center"></div>
                      
                      <div>
-                         <label class="input-label justify-center !ml-0">Export</label>
-                         <button @click="exportPDF" class="w-full py-3 bg-theme-main text-white text-xs font-bold tracking-[0.2em] rounded-2xl shadow-md transition-transform active:scale-[0.98] mb-4">
+                         <label class="input-label justify-center !ml-0">Export & Backup</label>
+                         <button @click="exportPDF" class="w-full py-3 bg-theme-main text-white text-xs font-bold tracking-[0.2em] rounded-2xl shadow-md transition-transform active:scale-[0.98] mb-3">
                              EXPORT TO PDF
+                         </button>
+                         <button @click="exportJSON" class="w-full py-3 bg-gray-200 text-theme-main text-xs font-bold tracking-[0.2em] rounded-2xl shadow-sm transition-transform active:scale-[0.98] mb-4">
+                             EXPORT JSON BACKUP
                          </button>
                      </div>
 
-                     <button @click="confirmResetData" class="w-full py-2 text-theme-danger text-[10px] tracking-widest opacity-60 hover:opacity-100 rounded-2xl">RESET ALL CLOUD DATA</button>
+                     <button @click="confirmResetData" class="w-full py-2 text-theme-danger text-[10px] tracking-widest opacity-60 hover:opacity-100 rounded-2xl">START A NEW JOURNEY</button>
                  </div>
             </div>
         </div>
 
-        <div v-if="confirmModal.show" class="modal-mask">
-            <div class="bg-theme-paper w-72 p-6 text-center shadow-2xl rounded-3xl relative overflow-hidden border border-theme-border/20">
+        <div v-if="confirmModal.show" class="modal-mask z-[3000]">
+            <div class="bg-theme-paper w-72 p-6 text-center shadow-2xl rounded-3xl relative overflow-hidden border border-theme-border/20 bg-white">
                  <div class="w-12 h-12 bg-theme-input rounded-full flex items-center justify-center mx-auto mb-4 text-theme-accent"><svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
                  <h3 class="font-serif font-bold text-theme-main mb-2 text-lg">{{ confirmModal.title }}</h3>
                  <p class="text-xs text-gray-500 mb-6 leading-relaxed">{{ confirmModal.message }}</p>
                  <div class="flex gap-3">
-                     <button @click="confirmModal.show=false" class="flex-1 py-3 rounded-2xl text-theme-sub text-xs bg-theme-input hover:bg-white/10">CANCEL</button>
-                     <button @click="executeConfirm" class="flex-1 py-3 rounded-2xl bg-theme-accent text-white text-xs shadow-lg shadow-theme-accent/20">CONFIRM</button>
+                     <button @click="confirmModal.show=false" class="flex-1 py-3 rounded-2xl text-theme-sub text-xs bg-theme-input hover:bg-gray-100 transition">CANCEL</button>
+                     <button @click="executeConfirm" class="flex-1 py-3 rounded-2xl bg-theme-accent text-white text-xs shadow-lg shadow-theme-accent/20 transition">CONFIRM</button>
                  </div>
             </div>
         </div>
