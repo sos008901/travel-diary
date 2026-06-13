@@ -17,24 +17,18 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// -------------------------------------------------------------------
-// 修正 1：自動載入上一次開啟的旅程
-// -------------------------------------------------------------------
 function getOrCreateTripId() {
     const urlParams = new URLSearchParams(window.location.search);
     let tripId = urlParams.get('trip');
     
     if (!tripId) {
-        // 如果網址沒有參數，先去歷史紀錄找「最後一次開啟的旅程」
         const historyStr = localStorage.getItem('tabi_trip_history');
         if (historyStr) {
             try {
                 const history = JSON.parse(historyStr);
                 if (history && history.length > 0) {
-                    // 依照最後存取時間排序，拿最新的那個
                     history.sort((a, b) => b.lastAccessed - a.lastAccessed);
                     tripId = history[0].id;
-                    // 把網址替換回上次的旅程，但不重新整理頁面
                     const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + tripId;
                     window.history.replaceState({ path: newUrl }, '', newUrl);
                     return tripId;
@@ -42,7 +36,6 @@ function getOrCreateTripId() {
             } catch (e) {}
         }
 
-        // 如果真的連歷史紀錄都沒有，才建立全新的旅程
         tripId = 'trip_' + Math.random().toString(36).substring(2, 10);
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + tripId;
         window.history.replaceState({ path: newUrl }, '', newUrl);
@@ -270,12 +263,12 @@ createApp({
         const onMouseDragEnd = () => { dragIndex.value = null; dragActive.value = false; document.body.style.cursor = ''; };
         
         // -------------------------------------------------------------------
-        // 修正 2：強化網址與地圖辨識系統
+        // 完美修正：Google Maps 官方跨平台搜尋網址與網址辨識
         // -------------------------------------------------------------------
         const openMap = (loc) => { 
             if (!loc) return; 
             const cleanLoc = loc.trim();
-            // 增強網址判斷，加入 .gl 支援 Google Maps 短網址 (例如 maps.app.goo.gl)
+            // 更精準地判斷是否為網址，支援 goo.gl 和 maps.app.goo.gl 等短網址
             const isUrl = /^https?:\/\//i.test(cleanLoc) || 
                           /^www\./i.test(cleanLoc) || 
                           /\.(com|tw|jp|co|gl|net|io|org)\b/i.test(cleanLoc) || 
@@ -286,7 +279,8 @@ createApp({
                 const finalUrl = /^https?:\/\//i.test(cleanLoc) ? cleanLoc : 'https://' + cleanLoc;
                 window.open(finalUrl, '_blank');
             } else {
-                // 如果判斷是地點關鍵字，修正為 Google Maps 官方搜尋格式
+                // 如果是地點名稱，使用 Google Maps 官方 API 的搜尋網址
+                // 這樣 iOS / Android 的 App 就能正確接手處理，不會顯示不支援
                 const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLoc)}`;
                 window.open(mapUrl, '_blank');
             }
@@ -294,7 +288,6 @@ createApp({
 
         const renderNote = (note) => { 
             if (!note) return ''; 
-            // 強化備忘錄中的網址自動轉換，支援短網址
             const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([a-zA-Z0-9-]+\.(com|tw|jp|gl)[^\s]*)/gi; 
             return note.replace(urlRegex, (url) => { 
                 const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
