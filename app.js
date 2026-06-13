@@ -90,7 +90,14 @@ createApp({
 
         const instance = getCurrentInstance();
 
-        // 歷史紀錄相關函式
+        // 確保網址格式正確的工具函數
+        const formatUrl = (url) => {
+            if (!url) return '#';
+            let cleanUrl = url.trim();
+            if (/^https?:\/\//i.test(cleanUrl)) return cleanUrl;
+            return 'https://' + cleanUrl;
+        };
+
         const loadHistory = () => {
             const history = localStorage.getItem('tabi_trip_history');
             if (history) tripHistory.value = JSON.parse(history);
@@ -240,8 +247,32 @@ createApp({
              }
         };
         const onMouseDragEnd = () => { dragIndex.value = null; dragActive.value = false; document.body.style.cursor = ''; };
-        const openMap = (loc) => { if (!loc) return; const url = (loc.startsWith('http') || loc.startsWith('www')) ? loc : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`; window.open(url, '_blank'); };
-        const renderNote = (note) => { if (!note) return ''; const urlRegex = /(https?:\/\/[^\s]+)/g; return note.replace(urlRegex, (url) => { return `<a href="${url}" target="_blank" class="text-theme-accent underline break-all" onclick="event.stopPropagation()">${url}</a>`; }); };
+        
+        // 智慧判斷網址或地圖搜尋
+        const openMap = (loc) => { 
+            if (!loc) return; 
+            const cleanLoc = loc.trim();
+            // 判斷是否帶有網址特徵 (http, https, www, .com, .tw 等等)
+            if (/^https?:\/\//i.test(cleanLoc) || /^www\./i.test(cleanLoc) || cleanLoc.includes('.com') || cleanLoc.includes('.tw') || cleanLoc.includes('.jp') || cleanLoc.includes('.co')) {
+                const finalUrl = cleanLoc.startsWith('http') ? cleanLoc : 'https://' + cleanLoc;
+                window.open(finalUrl, '_blank');
+            } else {
+                // 否則當作「地點關鍵字」，開啟 Google Maps 搜尋
+                const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLoc)}`;
+                window.open(mapUrl, '_blank');
+            }
+        };
+
+        // 強化備忘錄的超連結渲染
+        const renderNote = (note) => { 
+            if (!note) return ''; 
+            const urlRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/gi; 
+            return note.replace(urlRegex, (url) => { 
+                const href = url.startsWith('http') ? url : 'https://' + url;
+                return `<a href="${href}" target="_blank" class="text-theme-accent underline break-all" onclick="event.stopPropagation()">${url}</a>`; 
+            }); 
+        };
+        
         const showToast = (msg) => { toast.value = { show: true, message: msg, type: 'success' }; setTimeout(() => toast.value.show = false, 3000); };
         const triggerConfirm = (title, msg, cb) => { confirmModal.value = { show: true, title, message: msg, callback: cb }; };
         const executeConfirm = () => { if (confirmModal.value.callback) confirmModal.value.callback(); confirmModal.value.show = false; };
@@ -381,7 +412,7 @@ createApp({
         
         const onFabClick = () => {
             if(currentTab.value === 'schedule') { formItem.value = { id: Date.now(), time: '09:00', title: '', location: '', note: '', dayIndex: currentDayIndex.value, originalDayIndex: currentDayIndex.value }; tempHour.value='09'; tempMinute.value='00'; isEditing.value = false; showItemModal.value = true; }
-            if(currentTab.value === 'money') { const now = new Date(); const dateStr = now.toISOString().split('T')[0]; const h = String(now.getHours()).padStart(2, '0'); const m = String(now.getMinutes()).padStart(2, '0'); formExpense.value = { id: Date.now(), title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: dateStr, time: `${h}:${m}` }; tempHourExp.value = String(h).padStart(2, '0'); tempMinuteExp.value = String(m).padStart(2, '0'); isExpenseEditing.value = false; showExpenseModal.value = true; }
+            if(currentTab.value === 'money') { const now = new Date(); const dateStr = now.toISOString().split('T')[0]; const h = String(now.getHours()).padStart(2, '0'); const m = String(now.getMinutes()).padStart(2, '0'); formExpense.value = { id: Date.now(), title: '', amount: '', payer: travelers.value[0], beneficiaries: [], type: 'shared', date: dateStr, time: `${h}:${m}`, note: '' }; tempHourExp.value = String(h).padStart(2, '0'); tempMinuteExp.value = String(m).padStart(2, '0'); isExpenseEditing.value = false; showExpenseModal.value = true; }
             if(currentTab.value === 'memo') { formNote.value = { id: Date.now(), title: '', content: '', images: [] }; isNoteEditing.value = false; showNoteModal.value = true; }
         };
 
@@ -440,7 +471,7 @@ createApp({
             html += `<div class="html2pdf__page-break"></div><div style="page-break-before: always; padding-top: 20px;"><div style="text-align:center; margin-bottom: 30px;"><h1 style="font-size:32px; font-weight:bold; margin-bottom:5px;">${destination.value}</h1><p style="font-size:14px; color:#5F6368; letter-spacing:2px;">Trip Expenses & Budget</p></div>`;
             html += `<h2 style="font-size:20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px;">Budget Overview</h2><p style="font-size: 16px; font-weight:bold;">Grand Total: ${currencySymbol.value} ${totalExpense.value.toLocaleString()} <span style="font-size:12px; color:#9CA3AF; font-weight:normal;">(≈ NT$ ${toTWD(totalExpense.value)})</span></p>`;
             if (travelers.value.length > 0) { html += `<h3 style="font-size:14px; margin-top: 15px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px;">Member Expenses</h3><ul style="list-style: none; padding-left: 0; margin-top: 5px;">`; travelers.value.forEach(t => { const memberTotal = getMemberDetails(t).total; html += `<li style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;"><span><strong>${t}</strong></span><span>${currencySymbol.value} ${Math.round(memberTotal).toLocaleString()}</span></li>`; }); html += `</ul>`; }
-            if (groupedExpenses.value.length > 0) { html += `<h3 style="font-size:14px; margin-top: 25px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px;">Expense Details</h3>`; groupedExpenses.value.forEach(group => { html += `<h4 style="font-size:14px; margin-top: 15px; color: #3E4E50; border-bottom: 1px solid #E0E0E0; padding-bottom: 4px;">${group.displayDate}  <span style="font-size:11px; color:#9CA3AF;">(Subtotal: ${currencySymbol.value} ${group.total.toLocaleString()})</span></h4><ul style="list-style: none; padding-left: 0; margin-top: 8px;">`; group.items.forEach(exp => { let typeText = exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費'); html += `<li style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; border-bottom: 1px dashed #E0E0E0; padding-bottom: 8px;"><span><strong>${exp.title}</strong><br><span style="font-size:11px; color:#9CA3AF;">${exp.payer} 付款 / ${typeText}</span></span><span>${currencySymbol.value} ${Number(exp.amount).toLocaleString()}</span></li>`; }); html += `</ul>`; }); }
+            if (groupedExpenses.value.length > 0) { html += `<h3 style="font-size:14px; margin-top: 25px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px;">Expense Details</h3>`; groupedExpenses.value.forEach(group => { html += `<h4 style="font-size:14px; margin-top: 15px; color: #3E4E50; border-bottom: 1px solid #E0E0E0; padding-bottom: 4px;">${group.displayDate}  <span style="font-size:11px; color:#9CA3AF;">(Subtotal: ${currencySymbol.value} ${group.total.toLocaleString()})</span></h4><ul style="list-style: none; padding-left: 0; margin-top: 8px;">`; group.items.forEach(exp => { let typeText = exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費'); html += `<li style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; border-bottom: 1px dashed #E0E0E0; padding-bottom: 8px;"><span><strong>${exp.title}</strong><br><span style="font-size:11px; color:#9CA3AF;">${exp.payer} 付款 / ${typeText}</span>${exp.note ? `<br><span style="font-size:11px; color:#9CA3AF;">📝 ${exp.note}</span>` : ''}</span><span>${currencySymbol.value} ${Number(exp.amount).toLocaleString()}</span></li>`; }); html += `</ul>`; }); }
             else html += `<p style="font-size: 13px; color: #9CA3AF; margin-top: 10px;">No expense records.</p>`;
             html += `</div>`; element.innerHTML = html;
             const opt = { margin: 15, filename: `${destination.value || 'Trip'}_Record.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } };
@@ -450,7 +481,7 @@ createApp({
         return { 
             currentTab, currentDayIndex, days, currentDayItems, totalExpense, filteredExpenses, notes, sortedNotes, destination, currencySymbol, startDate, exchangeRate, showWizard, tempDestination, tempStartDate, detectedInfo, finishWizard, detectCurrency, showItemModal, showExpenseModal, showSettingsModal, showNoteModal, closeAllModals, getModalTitle, formItem, formExpense, formNote, tempHour, tempMinute, travelers, saveItem, saveExpense, saveNote, editItem, editExpense, editNote, confirmDeleteItem, confirmDeleteExpense, confirmDeleteNote, onFabClick, confirmResetData, addDay, confirmDeleteDay, openMap, searchGoogleMaps, renderNote, toast, confirmModal, executeConfirm, toTWD, getDayDate,
             getDayOfWeek, toggleExpand, expandedItemId, isEditing, isExpenseEditing, isNoteEditing, onTouchDragStart, onTouchDragMove, onTouchDragEnd, dragIndex, dateContainer, onDateDragStart, onDateDragMove, onDateDragEnd, getMemberDetails, statistics, debts, toggleBeneficiary, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats, collapsedDates, toggleDateGroup, showTravelerModal, openTravelerModal, editingTravelers, addTraveler, removeTraveler, saveTravelers, isSyncing, permissionError, retryConnection, rulesText, copyRules, expandedNoteId, toggleExpandNote, onMouseDragStart, onMouseDragMove, onMouseDragEnd, shoppingList, newShopName, addShop, removeShop, addItemToShop, removeItem, toggleItem, toggleShop, enableShopRename, saveShopRename, showShoppingEditModal, editForm, openEditItemModal, saveEditItem, onNoteImageChange, onShopItemImageChange, onEditItemImageChange, viewingImage, viewImage, triggerFileInput, exportPDF, exportJSON,
-            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink // 新增的 Return
+            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink, formatUrl
         };
     }
 }).mount('#app');
