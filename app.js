@@ -151,6 +151,9 @@ createApp({
             });
         };
 
+        // -------------------------------------------------------------------
+        // 修正 1：強化圖片壓縮演算法，大幅降低容量至 Firebase 限制的安全範圍
+        // -------------------------------------------------------------------
         const compressImage = (file) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -158,7 +161,8 @@ createApp({
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        const MAX_DIM = 1600; 
+                        // 將最大解析度從 1600 降至 800，對於清單預覽與 PDF 已非常足夠
+                        const MAX_DIM = 800; 
                         let width = img.width;
                         let height = img.height;
                         if (width > height) {
@@ -170,10 +174,14 @@ createApp({
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        let quality = 0.9;
+                        
+                        let quality = 0.7; // 降低初始畫質
                         let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        const MAX_CHAR_LENGTH = 1200000; 
-                        while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.5) {
+                        
+                        // 嚴格限制單張圖片最大長度約為 150KB (Firebase 單份文件為 1000KB)
+                        // 這樣一筆資料就能允許放 5~6 張以上的圖片
+                        const MAX_CHAR_LENGTH = 150000; 
+                        while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.2) {
                             quality -= 0.1;
                             dataUrl = canvas.toDataURL('image/jpeg', quality);
                         }
@@ -262,14 +270,9 @@ createApp({
         };
         const onMouseDragEnd = () => { dragIndex.value = null; dragActive.value = false; document.body.style.cursor = ''; };
         
-        // -------------------------------------------------------------------
-        // 最終修正：真正 Google Maps 官方 API 的搜尋網址
-        // -------------------------------------------------------------------
         const openMap = (loc) => { 
             if (!loc) return; 
             const cleanLoc = loc.trim();
-            
-            // 判斷是否為網頁連結
             const isUrl = /^https?:\/\//i.test(cleanLoc) || 
                           /^www\./i.test(cleanLoc) || 
                           /\.(com|tw|jp|co|gl|net|io|org)\b/i.test(cleanLoc) || 
@@ -279,8 +282,6 @@ createApp({
                 const finalUrl = /^https?:\/\//i.test(cleanLoc) ? cleanLoc : 'https://' + cleanLoc;
                 window.open(finalUrl, '_blank');
             } else {
-                // 使用 Google 官方開發者文件的標準跨平台網址：
-                // 這樣絕對會在瀏覽器開啟「Google Maps 網頁版搜尋結果」
                 const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLoc)}`;
                 window.open(mapUrl, '_blank');
             }
@@ -422,9 +423,44 @@ createApp({
         };
 
         const triggerFileInput = (refName) => { const element = instance.refs[refName]; if (element) { if (Array.isArray(element)) element[0].click(); else element.click(); } };
-        const onNoteImageChange = async (e) => { const files = e.target.files; if (files && files.length > 0) { for (let i = 0; i < files.length; i++) { const compressed = await compressImage(files[i]); if(!formNote.value.images) formNote.value.images = []; formNote.value.images.push(compressed); } } };
-        const onShopItemImageChange = async (e, shop) => { const files = e.target.files; if (files && files.length > 0) { if(!shop.tempImages) shop.tempImages = []; for (let i = 0; i < files.length; i++) { const compressed = await compressImage(files[i]); shop.tempImages.push(compressed); } } };
-        const onEditItemImageChange = async (e) => { const files = e.target.files; if (files && files.length > 0) { if(!editForm.value.images) editForm.value.images = []; for (let i = 0; i < files.length; i++) { const compressed = await compressImage(files[i]); editForm.value.images.push(compressed); } } };
+        
+        // -------------------------------------------------------------------
+        // 修正 2：在選取完照片後，主動清空 Input 的 Value 以防瀏覽器快取卡死
+        // -------------------------------------------------------------------
+        const onNoteImageChange = async (e) => { 
+            const files = e.target.files; 
+            if (files && files.length > 0) { 
+                for (let i = 0; i < files.length; i++) { 
+                    const compressed = await compressImage(files[i]); 
+                    if(!formNote.value.images) formNote.value.images = []; 
+                    formNote.value.images.push(compressed); 
+                } 
+            } 
+            e.target.value = ''; // <--- 清空選擇快取
+        };
+        const onShopItemImageChange = async (e, shop) => { 
+            const files = e.target.files; 
+            if (files && files.length > 0) { 
+                if(!shop.tempImages) shop.tempImages = []; 
+                for (let i = 0; i < files.length; i++) { 
+                    const compressed = await compressImage(files[i]); 
+                    shop.tempImages.push(compressed); 
+                } 
+            } 
+            e.target.value = ''; // <--- 清空選擇快取
+        };
+        const onEditItemImageChange = async (e) => { 
+            const files = e.target.files; 
+            if (files && files.length > 0) { 
+                if(!editForm.value.images) editForm.value.images = []; 
+                for (let i = 0; i < files.length; i++) { 
+                    const compressed = await compressImage(files[i]); 
+                    editForm.value.images.push(compressed); 
+                } 
+            } 
+            e.target.value = ''; // <--- 清空選擇快取
+        };
+
         const viewImage = (src) => { viewingImage.value = src; }
         const addDay = () => { days.value.push({ items: [] }); currentDayIndex.value = days.value.length - 1; };
         const confirmDeleteDay = () => days.value.length <= 1 ? showToast('最少保留一天') : triggerConfirm('刪除', `刪除 Day ${currentDayIndex.value+1}?`, () => { days.value.splice(currentDayIndex.value, 1); currentDayIndex.value = Math.min(currentDayIndex.value, days.value.length-1); });
