@@ -151,9 +151,6 @@ createApp({
             });
         };
 
-        // -------------------------------------------------------------------
-        // 修正 1：強化圖片壓縮演算法，大幅降低容量至 Firebase 限制的安全範圍
-        // -------------------------------------------------------------------
         const compressImage = (file) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -161,7 +158,6 @@ createApp({
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        // 將最大解析度從 1600 降至 800，對於清單預覽與 PDF 已非常足夠
                         const MAX_DIM = 800; 
                         let width = img.width;
                         let height = img.height;
@@ -174,12 +170,8 @@ createApp({
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        
-                        let quality = 0.7; // 降低初始畫質
+                        let quality = 0.7; 
                         let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        
-                        // 嚴格限制單張圖片最大長度約為 150KB (Firebase 單份文件為 1000KB)
-                        // 這樣一筆資料就能允許放 5~6 張以上的圖片
                         const MAX_CHAR_LENGTH = 150000; 
                         while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.2) {
                             quality -= 0.1;
@@ -424,9 +416,6 @@ createApp({
 
         const triggerFileInput = (refName) => { const element = instance.refs[refName]; if (element) { if (Array.isArray(element)) element[0].click(); else element.click(); } };
         
-        // -------------------------------------------------------------------
-        // 修正 2：在選取完照片後，主動清空 Input 的 Value 以防瀏覽器快取卡死
-        // -------------------------------------------------------------------
         const onNoteImageChange = async (e) => { 
             const files = e.target.files; 
             if (files && files.length > 0) { 
@@ -436,7 +425,7 @@ createApp({
                     formNote.value.images.push(compressed); 
                 } 
             } 
-            e.target.value = ''; // <--- 清空選擇快取
+            e.target.value = ''; 
         };
         const onShopItemImageChange = async (e, shop) => { 
             const files = e.target.files; 
@@ -447,7 +436,7 @@ createApp({
                     shop.tempImages.push(compressed); 
                 } 
             } 
-            e.target.value = ''; // <--- 清空選擇快取
+            e.target.value = ''; 
         };
         const onEditItemImageChange = async (e) => { 
             const files = e.target.files; 
@@ -458,7 +447,7 @@ createApp({
                     editForm.value.images.push(compressed); 
                 } 
             } 
-            e.target.value = ''; // <--- 清空選擇快取
+            e.target.value = ''; 
         };
 
         const viewImage = (src) => { viewingImage.value = src; }
@@ -517,22 +506,147 @@ createApp({
         const removeTraveler = (idx) => { if (editingTravelers.value.length > 1) { editingTravelers.value.splice(idx, 1); } else { showToast('At least one traveler required'); } };
         const saveTravelers = () => { const oldTravelers = [...travelers.value]; const newTravelers = [...editingTravelers.value]; expenses.value.forEach(exp => { const payerIdx = oldTravelers.indexOf(exp.payer); if (payerIdx !== -1 && payerIdx < newTravelers.length) exp.payer = newTravelers[payerIdx]; if (exp.beneficiaries && exp.beneficiaries.length > 0) exp.beneficiaries = exp.beneficiaries.map(b => { const bIdx = oldTravelers.indexOf(b); return (bIdx !== -1 && bIdx < newTravelers.length) ? newTravelers[bIdx] : b; }).filter(b => newTravelers.includes(b)); }); travelers.value = newTravelers; showTravelerModal.value = false; showToast('Travelers Updated'); };
 
+        // -------------------------------------------------------------------
+        // 修正 3：重新設計 PDF 匯出版面，改用專業「表格化設計」並加入「最終結算」
+        // -------------------------------------------------------------------
         const exportPDF = () => {
-            showToast('Generating PDF...'); const element = document.createElement('div'); element.style.padding = '20px'; element.style.fontFamily = '"Noto Serif TC", "Noto Sans TC", sans-serif'; element.style.color = '#2C3032';
-            let html = `<div style="text-align:center; margin-bottom: 30px;"><h1 style="font-size:32px; font-weight:bold; margin-bottom:5px;">${destination.value}</h1><p style="font-size:14px; color:#5F6368; letter-spacing:2px;">Trip Schedule</p></div>`;
-            html += `<h2 style="font-size:20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px; margin-top:20px;">Schedule</h2>`;
+            showToast('Generating PDF...'); 
+            const element = document.createElement('div'); 
+            element.style.padding = '30px'; 
+            element.style.fontFamily = '"Noto Serif TC", "Noto Sans TC", sans-serif'; 
+            element.style.color = '#2C3032';
+            
+            // 標題區塊
+            let html = `
+                <div style="text-align:center; margin-bottom: 40px;">
+                    <h1 style="font-size:36px; font-weight:900; margin-bottom:5px; color:#2C3032; letter-spacing: 2px;">${destination.value || 'Trip'}</h1>
+                    <p style="font-size:12px; color:#C5A059; letter-spacing:4px; text-transform:uppercase; font-weight:bold;">Travel Report & Accounting</p>
+                    <p style="font-size:12px; color:#9CA3AF; margin-top:5px;">${startDate.value}</p>
+                </div>
+            `;
+            
+            // 1. 行程表區塊 (表格化)
+            html += `<h2 style="font-size:20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px; margin-bottom:20px; color:#2C3032;">Schedule</h2>`;
             days.value.forEach((day, idx) => {
-                html += `<h3 style="font-size:16px; margin-top: 20px; color: #3E4E50;">Day ${idx + 1} - ${getDayDate(idx)}</h3>`;
-                if (day.items.length === 0) html += `<p style="font-size: 13px; color: #9CA3AF;">No events scheduled.</p>`;
-                else { html += `<ul style="list-style: none; padding-left: 0;">`; day.items.forEach(item => { html += `<li style="margin-bottom: 12px; font-size: 14px; line-height: 1.6; padding-left: 10px; border-left: 3px solid #E0E0E0;"><strong>${item.time}</strong>  ${item.title}${item.location ? `<br><span style="font-size:12px; color:#5F6368;">📍 ${item.location}</span>` : ''}${item.note ? `<br><span style="font-size:12px; color:#9CA3AF;">📝 ${item.note}</span>` : ''}</li>`; }); html += `</ul>`; }
+                html += `<div style="margin-bottom: 20px; border: 1px solid #E0E0E0; border-radius: 8px; overflow:hidden;">`;
+                html += `<div style="background-color: #F4F2EE; padding: 10px 15px; border-bottom: 1px solid #E0E0E0;"><h3 style="font-size:15px; margin: 0; color: #2C3032; font-weight:bold;">Day ${idx + 1} - ${getDayDate(idx)} <span style="font-size:12px; font-weight:normal; color:#5F6368; margin-left:8px;">${getDayOfWeek(idx)}</span></h3></div>`;
+                
+                if (day.items.length === 0) {
+                     html += `<div style="padding: 15px; font-size: 13px; color: #9CA3AF; text-align:center;">No events scheduled.</div>`;
+                } else { 
+                    html += `<table style="width: 100%; border-collapse: collapse; font-size: 13px;">`; 
+                    day.items.forEach((item, i) => { 
+                        let bg = i % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+                        html += `<tr style="background-color: ${bg}; border-bottom: 1px solid #EEEEEE;">
+                                    <td style="padding: 12px 15px; width: 20%; vertical-align: top; font-weight:bold; color:#C5A059;">${item.time}</td>
+                                    <td style="padding: 12px 15px; width: 80%; vertical-align: top;">
+                                        <div style="font-weight:bold; color:#2C3032; font-size:14px; margin-bottom:4px;">${item.title}</div>
+                                        ${item.location ? `<div style="font-size:11px; color:#5F6368; margin-bottom:2px;">📍 ${item.location}</div>` : ''}
+                                        ${item.note ? `<div style="font-size:11px; color:#9CA3AF;">📝 ${item.note}</div>` : ''}
+                                    </td>
+                                 </tr>`; 
+                    }); 
+                    html += `</table>`; 
+                }
+                html += `</div>`;
             });
-            html += `<div class="html2pdf__page-break"></div><div style="page-break-before: always; padding-top: 20px;"><div style="text-align:center; margin-bottom: 30px;"><h1 style="font-size:32px; font-weight:bold; margin-bottom:5px;">${destination.value}</h1><p style="font-size:14px; color:#5F6368; letter-spacing:2px;">Trip Expenses & Budget</p></div>`;
-            html += `<h2 style="font-size:20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px;">Budget Overview</h2><p style="font-size: 16px; font-weight:bold;">Grand Total: ${currencySymbol.value} ${totalExpense.value.toLocaleString()} <span style="font-size:12px; color:#9CA3AF; font-weight:normal;">(≈ NT$ ${toTWD(totalExpense.value)})</span></p>`;
-            if (travelers.value.length > 0) { html += `<h3 style="font-size:14px; margin-top: 15px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px;">Member Expenses</h3><ul style="list-style: none; padding-left: 0; margin-top: 5px;">`; travelers.value.forEach(t => { const memberTotal = getMemberDetails(t).total; html += `<li style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px;"><span><strong>${t}</strong></span><span>${currencySymbol.value} ${Math.round(memberTotal).toLocaleString()}</span></li>`; }); html += `</ul>`; }
-            if (groupedExpenses.value.length > 0) { html += `<h3 style="font-size:14px; margin-top: 25px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px;">Expense Details</h3>`; groupedExpenses.value.forEach(group => { html += `<h4 style="font-size:14px; margin-top: 15px; color: #3E4E50; border-bottom: 1px solid #E0E0E0; padding-bottom: 4px;">${group.displayDate}  <span style="font-size:11px; color:#9CA3AF;">(Subtotal: ${currencySymbol.value} ${group.total.toLocaleString()})</span></h4><ul style="list-style: none; padding-left: 0; margin-top: 8px;">`; group.items.forEach(exp => { let typeText = exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費'); html += `<li style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; border-bottom: 1px dashed #E0E0E0; padding-bottom: 8px;"><span><strong>${exp.title}</strong><br><span style="font-size:11px; color:#9CA3AF;">${exp.payer} 付款 / ${typeText}</span>${exp.note ? `<br><span style="font-size:11px; color:#9CA3AF;">📝 ${exp.note}</span>` : ''}</span><span>${currencySymbol.value} ${Number(exp.amount).toLocaleString()}</span></li>`; }); html += `</ul>`; }); }
-            else html += `<p style="font-size: 13px; color: #9CA3AF; margin-top: 10px;">No expense records.</p>`;
-            html += `</div>`; element.innerHTML = html;
-            const opt = { margin: 15, filename: `${destination.value || 'Trip'}_Record.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } };
+
+            // 換頁
+            html += `<div class="html2pdf__page-break"></div>`;
+            
+            // 2. 財務總結區塊
+            html += `<div style="page-break-before: always; padding-top: 20px;">`;
+            html += `<h2 style="font-size:22px; border-bottom: 2px solid #C5A059; padding-bottom: 10px; margin-bottom:20px; color:#2C3032;">Financial Summary</h2>`;
+
+            // 總花費
+            html += `
+                <div style="background-color: #F4F2EE; padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align:center;">
+                    <p style="font-size: 12px; color: #5F6368; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px;">Grand Total</p>
+                    <p style="font-size: 28px; font-weight: bold; color: #2C3032; margin:0;">${currencySymbol.value} ${totalExpense.value.toLocaleString()}</p>
+                    <p style="font-size: 12px; color: #9CA3AF; margin-top:5px;">≈ NT$ ${toTWD(totalExpense.value)}</p>
+                </div>
+            `;
+
+            // 成員分攤 與 最終結算 (左右並排)
+            html += `<div style="display:flex; justify-content: space-between; margin-bottom: 30px; gap: 20px;">`;
+            
+            // 左側：Member Expenses
+            html += `<div style="flex: 1; border: 1px solid #E0E0E0; border-radius: 12px; padding: 15px;">`;
+            html += `<h3 style="font-size:14px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; text-align:center;">Member Share (個人分攤)</h3>`;
+            travelers.value.forEach(t => {
+                const memberTotal = getMemberDetails(t).total;
+                html += `<div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px dashed #eee;">
+                            <span><strong>${t}</strong></span>
+                            <span>${currencySymbol.value} ${Math.round(memberTotal).toLocaleString()}</span>
+                         </div>`;
+            });
+            html += `</div>`;
+
+            // 右側：Settlement (結算)
+            html += `<div style="flex: 1; border: 1px solid #E0E0E0; border-radius: 12px; padding: 15px; background-color: #FAFAFA;">`;
+            html += `<h3 style="font-size:14px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; text-align:center;">Settlement (最終結算)</h3>`;
+            if (debts.value.length > 0) {
+                debts.value.forEach(debt => {
+                    html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px dashed #eee;">
+                                <span><strong>${debt.from}</strong> <span style="color:#C5A059; font-size:10px; margin:0 4px; font-weight:bold;">給</span> <strong>${debt.to}</strong></span>
+                                <span style="color:#A65652; font-weight:bold;">${currencySymbol.value} ${debt.amount.toLocaleString()}</span>
+                             </div>`;
+                });
+            } else {
+                 html += `<div style="text-align:center; color:#9CA3AF; font-size: 12px; margin-top:20px;">無須結算</div>`;
+            }
+            html += `</div>`;
+            html += `</div>`; // 結束左右並排
+
+            // 3. 支出明細區塊 (表格化)
+            html += `<h2 style="font-size:18px; color: #2C3032; border-bottom: 2px solid #E0E0E0; padding-bottom: 10px; margin-bottom: 15px; margin-top:30px;">Expense Details (支出明細)</h2>`;
+
+            if (groupedExpenses.value.length > 0) {
+                groupedExpenses.value.forEach(group => {
+                    html += `<div style="margin-bottom: 20px; page-break-inside: avoid;">`;
+                    // 日期標題
+                    html += `<div style="background-color: #5F6368; color: white; padding: 8px 12px; font-size: 13px; font-weight: bold; border-radius: 6px 6px 0 0; display:flex; justify-content: space-between;">
+                                <span>${group.displayDate}</span>
+                                <span>Subtotal: ${currencySymbol.value} ${group.total.toLocaleString()}</span>
+                             </div>`;
+
+                    // 表格內容
+                    html += `<table style="width: 100%; border-collapse: collapse; font-size: 12px; border-left: 1px solid #E0E0E0; border-right: 1px solid #E0E0E0; border-bottom: 1px solid #E0E0E0;">`;
+                    group.items.forEach((exp, i) => {
+                        let typeText = exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費');
+                        let bg = i % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+                        html += `
+                            <tr style="background-color: ${bg}; border-bottom: 1px solid #EEEEEE;">
+                                <td style="padding: 10px 12px; width: 45%; vertical-align: middle;">
+                                    <div style="font-weight:bold; color:#2C3032; font-size:13px;">${exp.title}</div>
+                                    ${exp.note ? `<div style="color:#9CA3AF; font-size:10px; margin-top:3px;">📝 ${exp.note}</div>` : ''}
+                                </td>
+                                <td style="padding: 10px 12px; width: 30%; color: #5F6368; vertical-align: middle;">
+                                    ${exp.payer}付款 <span style="font-size:10px; background:#eee; padding:2px 6px; border-radius:4px; margin-left:4px;">${typeText}</span>
+                                </td>
+                                <td style="padding: 10px 12px; width: 25%; text-align: right; font-weight:bold; color:#2C3032; font-size:13px; vertical-align: middle;">
+                                    ${currencySymbol.value} ${Number(exp.amount).toLocaleString()}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    html += `</table></div>`;
+                });
+            } else {
+                html += `<p style="font-size: 13px; color: #9CA3AF; text-align:center; padding: 20px;">No expense records.</p>`;
+            }
+            
+            html += `</div>`; 
+            element.innerHTML = html;
+            
+            const opt = { 
+                margin: [15, 15, 15, 15], 
+                filename: `${destination.value || 'Trip'}_Report.pdf`, 
+                image: { type: 'jpeg', quality: 0.98 }, 
+                html2canvas: { scale: 2, useCORS: true }, 
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }, 
+                pagebreak: { mode: ['css', 'legacy'] } 
+            };
             html2pdf().set(opt).from(element).save().then(() => { showToast('PDF Exported Successfully!'); showSettingsModal.value = false; });
         };
 
