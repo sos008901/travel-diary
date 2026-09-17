@@ -17,7 +17,6 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 解析目前網址或歷史紀錄中的 Trip ID，若無則回傳空值（不再自動隨機生成幽靈旅程）
 function resolveInitialTripId() {
     const urlParams = new URLSearchParams(window.location.search);
     let tripId = urlParams.get('trip');
@@ -94,10 +93,13 @@ createApp({
         const isSyncing = ref(false);
         const isRemoteUpdate = ref(false); 
         const permissionError = ref(false);
-
-        // 【關鍵防呆】資料尚未確認自雲端或本地快取載入前，絕對禁止觸發上傳
         const isInitialDataLoaded = ref(false);
         let unsubscribeSnapshot = null;
+
+        // 【旅伴共用暗號系統】
+        const channelKey = ref(localStorage.getItem('tabi_channel_key') || '');
+        const tempChannelKey = ref(localStorage.getItem('tabi_channel_key') || '');
+        let unsubscribeChannel = null;
 
         const tempDestination = ref(''), tempStartDate = ref(''), detectedInfo = ref('');
         const tempHour = ref('09'), tempMinute = ref('00'), tempHourExp = ref('09'), tempMinuteExp = ref('00');
@@ -125,6 +127,62 @@ createApp({
             }
         };
 
+        // 監聽雲端共用頻道的清單變動
+        const setupChannelListener = (key) => {
+            if (!key) return;
+            if (unsubscribeChannel) unsubscribeChannel();
+            const channelDocRef = doc(db, "channels", key);
+            unsubscribeChannel = onSnapshot(channelDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const cloudList = docSnap.data().trips || [];
+                    let history = localStorage.getItem('tabi_trip_history');
+                    history = history ? JSON.parse(history) : [];
+
+                    const mergedMap = new Map();
+                    cloudList.forEach(t => mergedMap.set(t.id, t));
+                    history.forEach(t => {
+                        if (!mergedMap.has(t.id)) mergedMap.set(t.id, t);
+                    });
+
+                    const merged = Array.from(mergedMap.values()).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+                    tripHistory.value = merged;
+                    localStorage.setItem('tabi_trip_history', JSON.stringify(merged));
+                }
+            });
+        };
+
+        // 將旅程推播至共用頻道
+        const updateChannelTrips = async (tripData) => {
+            if (!channelKey.value) return;
+            try {
+                const channelDocRef = doc(db, "channels", channelKey.value);
+                let history = [...tripHistory.value];
+                const idx = history.findIndex(t => t.id === tripData.id);
+                if (idx > -1) {
+                    history[idx] = { ...history[idx], ...tripData };
+                } else {
+                    history.unshift(tripData);
+                }
+                await setDoc(channelDocRef, { trips: history }, { merge: true });
+            } catch(e) {}
+        };
+
+        const saveChannelKey = () => {
+            const cleanKey = tempChannelKey.value.trim();
+            channelKey.value = cleanKey;
+            localStorage.setItem('tabi_channel_key', cleanKey);
+            if (cleanKey) {
+                setupChannelListener(cleanKey);
+                showToast("已成功綁定共用暗號：" + cleanKey);
+                if (destination.value && TRIP_DOC_ID.value) {
+                    updateChannelTrips({ id: TRIP_DOC_ID.value, dest: destination.value, date: startDate.value, lastAccessed: Date.now() });
+                }
+            } else {
+                if (unsubscribeChannel) unsubscribeChannel();
+                showToast("已解除綁定");
+            }
+        };
+
         const saveToHistory = (id, dest, date) => {
             if (!dest || !id) return;
             let history = localStorage.getItem('tabi_trip_history');
@@ -139,6 +197,10 @@ createApp({
             history.sort((a, b) => b.lastAccessed - a.lastAccessed);
             localStorage.setItem('tabi_trip_history', JSON.stringify(history));
             tripHistory.value = history;
+
+            if (channelKey.value) {
+                updateChannelTrips(tripData);
+            }
         };
 
         const switchTrip = (id) => {
@@ -146,7 +208,6 @@ createApp({
             window.location.href = window.location.pathname + '?trip=' + id;
         };
 
-        // 加入旅伴分享的專屬網址或旅程代碼
         const joinTripPrompt = () => {
             const input = prompt("請貼上旅伴分享的「專屬網址」或輸入「旅程代碼 (例如 trip_xxxx)」：");
             if (!input) return;
@@ -168,10 +229,17 @@ createApp({
         };
 
         const deleteFromHistory = (id) => {
-            triggerConfirm('刪除紀錄', '確定要從清單中移除此旅程嗎？(雲端資料不會被刪除)', () => {
+            triggerConfirm('刪除紀錄', '確定要從清單中移除此旅程嗎？(雲端資料不會被刪除)', async () => {
                 let history = tripHistory.value.filter(t => t.id !== id);
                 localStorage.setItem('tabi_trip_history', JSON.stringify(history));
                 tripHistory.value = history;
+
+                if (channelKey.value) {
+                    try {
+                        const channelDocRef = doc(db, "channels", channelKey.value);
+                        await setDoc(channelDocRef, { trips: history }, { merge: true });
+                    } catch(e) {}
+                }
             });
         };
 
@@ -183,7 +251,6 @@ createApp({
             });
         };
 
-        // 圖片壓縮控制：單圖上限壓至約 40KB，徹底根治突破 Firestore 1MB 上限問題
         const compressImage = (file) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -342,7 +409,6 @@ createApp({
         const searchGoogleMaps = (q) => q ? openMap(q) : showToast('請輸入地點');
         const detectCurrency = () => { const info = Object.entries(CURRENCY_MAP).find(([k]) => tempDestination.value.toLowerCase().includes(k))?.[1]; if (info) { exchangeRate.value = info.r; currencySymbol.value = info.s; detectedInfo.value = `${info.n} (${info.s}) ≈ ${info.r}`; } };
         
-        // 完成嚮導時正式建立 ID 並同步網址
         const finishWizard = () => { 
             if(!tempDestination.value || !tempStartDate.value) return showToast('請輸入完整資訊'); 
             
@@ -364,7 +430,6 @@ createApp({
             saveToCloud();
         };
 
-        // 雲端同步核心：未載入完成不存、空資料不存、自動更新本機離線備份
         const saveToCloud = debounce(async () => {
             if (isRemoteUpdate.value) return;
             if (!isInitialDataLoaded.value) return; 
@@ -386,7 +451,6 @@ createApp({
                     lastUpdated: Date.now()
                 };
 
-                // 容量預警（防止突破 Firestore 1MB 上限）
                 const payloadSize = new Blob([JSON.stringify(dataToSave)]).size;
                 if (payloadSize > 850000) {
                     showToast("警告：旅程資料量即將超過雲端上限，請刪除部分圖片！");
@@ -443,7 +507,6 @@ createApp({
 
             tripDocRef = doc(db, "trips", TRIP_DOC_ID.value);
 
-            // 優先載入本地離線快取，離線也能看
             const cached = localStorage.getItem('tabi_cache_' + TRIP_DOC_ID.value);
             if (cached) {
                 try {
@@ -472,6 +535,9 @@ createApp({
 
         onMounted(async () => {
             loadHistory();
+            if (channelKey.value) {
+                setupChannelListener(channelKey.value);
+            }
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     setupFirestoreListener();
@@ -492,7 +558,6 @@ createApp({
             window.location.href = window.location.pathname + '?new=1';
         });
 
-        // 升級版匯出：優先調用手機原生分享選單（可一鍵選「儲存到檔案」、AirDrop 或 LINE），電腦端則自動下載 Blob
         const exportJSON = async () => {
             const dataToSave = {
                 tripId: TRIP_DOC_ID.value,
@@ -512,7 +577,6 @@ createApp({
             const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
             const backupFile = new File([jsonBlob], fileName, { type: 'application/json' });
 
-            // 手機瀏覽器原生分享面板
             if (navigator.canShare && navigator.canShare({ files: [backupFile] })) {
                 try {
                     await navigator.share({
@@ -527,7 +591,6 @@ createApp({
                 }
             }
 
-            // 電腦端或一般瀏覽器：Blob 連結下載
             const objectUrl = URL.createObjectURL(jsonBlob);
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.href = objectUrl;
@@ -539,7 +602,6 @@ createApp({
             showToast('原始資料已成功匯出 JSON 備份！');
         };
 
-        // JSON 備份還原
         const triggerImportJSON = () => {
             const input = document.createElement('input');
             input.type = 'file';
@@ -798,7 +860,8 @@ createApp({
         return { 
             currentTab, currentDayIndex, days, currentDayItems, totalExpense, filteredExpenses, notes, sortedNotes, destination, currencySymbol, startDate, exchangeRate, showWizard, tempDestination, tempStartDate, detectedInfo, finishWizard, detectCurrency, showItemModal, showExpenseModal, showSettingsModal, showNoteModal, closeAllModals, getModalTitle, formItem, formExpense, formNote, tempHour, tempMinute, travelers, saveItem, saveExpense, saveNote, editItem, editExpense, editNote, confirmDeleteItem, confirmDeleteExpense, confirmDeleteNote, onFabClick, confirmResetData, addDay, confirmDeleteDay, openMap, searchGoogleMaps, renderNote, toast, confirmModal, executeConfirm, toTWD, getDayDate,
             getDayOfWeek, toggleExpand, expandedItemId, isEditing, isExpenseEditing, isNoteEditing, onTouchDragStart, onTouchDragMove, onTouchDragEnd, dragIndex, dateContainer, onDateDragStart, onDateDragMove, onDateDragEnd, getMemberDetails, statistics, debts, toggleBeneficiary, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats, collapsedDates, toggleDateGroup, showTravelerModal, openTravelerModal, editingTravelers, addTraveler, removeTraveler, saveTravelers, isSyncing, permissionError, retryConnection, rulesText, copyRules, expandedNoteId, toggleExpandNote, onMouseDragStart, onMouseDragMove, onMouseDragEnd, shoppingList, newShopName, addShop, removeShop, addItemToShop, removeItem, toggleItem, toggleShop, enableShopRename, saveShopRename, showShoppingEditModal, editForm, openEditItemModal, saveEditItem, onNoteImageChange, onShopItemImageChange, onEditItemImageChange, viewingImage, viewImage, triggerFileInput, exportPDF, exportJSON,
-            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink, formatUrl, joinTripPrompt, triggerImportJSON
+            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink, formatUrl, joinTripPrompt, triggerImportJSON,
+            channelKey, tempChannelKey, saveChannelKey
         };
     }
 }).mount('#app');
