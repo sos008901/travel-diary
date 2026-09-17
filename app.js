@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { createApp, ref, computed, onMounted, watch, nextTick, getCurrentInstance } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
@@ -17,34 +17,31 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-function getOrCreateTripId() {
+// 解析目前網址或歷史紀錄中的 Trip ID，若無則回傳空值（不再自動隨機建立，防止產生幽靈空白旅程）
+function resolveInitialTripId() {
     const urlParams = new URLSearchParams(window.location.search);
     let tripId = urlParams.get('trip');
-    
-    if (!tripId) {
-        const historyStr = localStorage.getItem('tabi_trip_history');
-        if (historyStr) {
-            try {
-                const history = JSON.parse(historyStr);
-                if (history && history.length > 0) {
-                    history.sort((a, b) => b.lastAccessed - a.lastAccessed);
-                    tripId = history[0].id;
-                    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + tripId;
-                    window.history.replaceState({ path: newUrl }, '', newUrl);
-                    return tripId;
-                }
-            } catch (e) {}
-        }
+    const isExplicitNew = urlParams.get('new') === '1';
 
-        tripId = 'trip_' + Math.random().toString(36).substring(2, 10);
-        const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + tripId;
-        window.history.replaceState({ path: newUrl }, '', newUrl);
+    if (isExplicitNew) return '';
+
+    if (tripId) return tripId.trim();
+
+    const historyStr = localStorage.getItem('tabi_trip_history');
+    if (historyStr) {
+        try {
+            const history = JSON.parse(historyStr);
+            if (history && history.length > 0) {
+                history.sort((a, b) => b.lastAccessed - a.lastAccessed);
+                tripId = history[0].id;
+                const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + tripId;
+                window.history.replaceState({ path: newUrl }, '', newUrl);
+                return tripId;
+            }
+        } catch (e) {}
     }
-    return tripId;
+    return '';
 }
-
-const TRIP_DOC_ID = getOrCreateTripId(); 
-const tripDocRef = doc(db, "trips", TRIP_DOC_ID);
 
 const CURRENCY_MAP = {
     'japan': { s: '¥', r: 0.21, n: '日幣' }, 'kyoto': { s: '¥', r: 0.21, n: '日幣' }, 'osaka': { s: '¥', r: 0.21, n: '日幣' }, 'tokyo': { s: '¥', r: 0.21, n: '日幣' },
@@ -65,6 +62,9 @@ function debounce(func, wait) {
 
 createApp({
     setup() {
+        const TRIP_DOC_ID = ref(resolveInitialTripId());
+        let tripDocRef = TRIP_DOC_ID.value ? doc(db, "trips", TRIP_DOC_ID.value) : null;
+
         const currentTab = ref('schedule');
         const currentDayIndex = ref(0);
         const days = ref([{ items: [] }]);
@@ -80,7 +80,7 @@ createApp({
         const startDate = ref('');
         const destination = ref('');
         const currencySymbol = ref('¥');
-        const showWizard = ref(false);
+        const showWizard = ref(!TRIP_DOC_ID.value);
         const showItemModal = ref(false), showExpenseModal = ref(false), showSettingsModal = ref(false), showNoteModal = ref(false), showTravelerModal = ref(false), showHistoryModal = ref(false);
         const isEditing = ref(false), isNoteEditing = ref(false), isExpenseEditing = ref(false);
         const expenseFilter = ref('all');
@@ -94,7 +94,11 @@ createApp({
         const isSyncing = ref(false);
         const isRemoteUpdate = ref(false); 
         const permissionError = ref(false);
+
+        // 【防呆核心 1】資料是否已從雲端/快取就緒，未就緒前絕不上傳
+        const isDataReady = ref(false);
         let unsubscribeSnapshot = null;
+
         const tempDestination = ref(''), tempStartDate = ref(''), detectedInfo = ref('');
         const tempHour = ref('09'), tempMinute = ref('00'), tempHourExp = ref('09'), tempMinuteExp = ref('00');
         const formItem = ref({ id: null, time: '', title: '', location: '', note: '', dayIndex: 0, originalDayIndex: 0 });
@@ -118,7 +122,7 @@ createApp({
         };
 
         const saveToHistory = (id, dest, date) => {
-            if (!dest) return;
+            if (!dest || !id) return;
             let history = localStorage.getItem('tabi_trip_history');
             history = history ? JSON.parse(history) : [];
             const existingIdx = history.findIndex(t => t.id === id);
@@ -134,7 +138,29 @@ createApp({
         };
 
         const switchTrip = (id) => {
+            if (!id) return;
             window.location.href = window.location.pathname + '?trip=' + id;
+        };
+
+        // 【防呆核心 2】加入旅伴分享的旅程代碼或網址
+        const joinTripPrompt = () => {
+            const input = prompt("請貼上旅伴分享的「旅程專屬網址」或輸入「旅程代碼 (例如 trip_xxxx)」：");
+            if (!input) return;
+            let targetId = input.trim();
+            if (targetId.includes('trip=')) {
+                try {
+                    const parsedUrl = new URL(targetId);
+                    targetId = parsedUrl.searchParams.get('trip') || targetId;
+                } catch(e) {
+                    const match = targetId.match(/trip=([a-zA-Z0-9_-]+)/);
+                    if (match) targetId = match[1];
+                }
+            }
+            if (targetId) {
+                switchTrip(targetId);
+            } else {
+                showToast("無效的網址或旅程代碼");
+            }
         };
 
         const deleteFromHistory = (id) => {
@@ -146,7 +172,9 @@ createApp({
         };
 
         const copyShareLink = () => {
-            navigator.clipboard.writeText(window.location.href).then(() => {
+            if (!TRIP_DOC_ID.value) return showToast('尚未建立任何旅程');
+            const cleanShareUrl = window.location.origin + window.location.pathname + '?trip=' + TRIP_DOC_ID.value;
+            navigator.clipboard.writeText(cleanShareUrl).then(() => {
                 showToast('已複製專屬連結！快貼給旅伴吧');
             });
         };
@@ -308,10 +336,35 @@ createApp({
 
         const searchGoogleMaps = (q) => q ? openMap(q) : showToast('請輸入地點');
         const detectCurrency = () => { const info = Object.entries(CURRENCY_MAP).find(([k]) => tempDestination.value.toLowerCase().includes(k))?.[1]; if (info) { exchangeRate.value = info.r; currencySymbol.value = info.s; detectedInfo.value = `${info.n} (${info.s}) ≈ ${info.r}`; } };
-        const finishWizard = () => { if(!tempDestination.value || !tempStartDate.value) return showToast('請輸入完整資訊'); destination.value = tempDestination.value; startDate.value = tempStartDate.value; showWizard.value = false; if (!detectedInfo.value) detectCurrency(); saveToHistory(TRIP_DOC_ID, destination.value, startDate.value); };
         
+        // 【防呆核心 3】只有在完成嚮導時，若沒有 Trip ID 才正式生成，並立即綁定網址
+        const finishWizard = () => { 
+            if(!tempDestination.value || !tempStartDate.value) return showToast('請輸入完整資訊'); 
+            
+            if (!TRIP_DOC_ID.value) {
+                const newId = 'trip_' + Math.random().toString(36).substring(2, 10);
+                TRIP_DOC_ID.value = newId;
+                tripDocRef = doc(db, "trips", newId);
+                const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?trip=' + newId;
+                window.history.replaceState({ path: newUrl }, '', newUrl);
+            }
+
+            destination.value = tempDestination.value; 
+            startDate.value = tempStartDate.value; 
+            showWizard.value = false; 
+            if (!detectedInfo.value) detectCurrency(); 
+            
+            saveToHistory(TRIP_DOC_ID.value, destination.value, startDate.value);
+            isDataReady.value = true; // 正式解鎖存檔權限
+            saveToCloud();
+        };
+
+        // 【防呆核心 4】嚴格守門的雲端同步機制
         const saveToCloud = debounce(async () => {
             if (isRemoteUpdate.value) return;
+            if (!isDataReady.value) return; // 雲端資料尚未確認載入完成前，絕對不上傳（防止空資料覆蓋）
+            if (!TRIP_DOC_ID.value || !destination.value.trim()) return; // 目的地為空不上傳
+
             isSyncing.value = true;
             permissionError.value = false; 
             try {
@@ -324,9 +377,12 @@ createApp({
                     destination: destination.value,
                     exchangeRate: exchangeRate.value,
                     currencySymbol: currencySymbol.value,
-                    travelers: JSON.parse(JSON.stringify(travelers.value))
+                    travelers: JSON.parse(JSON.stringify(travelers.value)),
+                    lastUpdated: Date.now()
                 };
                 await setDoc(tripDocRef, dataToSave, { merge: true });
+                // 同時存入手機離線快取，不怕出國飛航模式或訊號差
+                localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(dataToSave));
                 isSyncing.value = false;
             } catch (e) {
                 if (e.code === 'permission-denied') permissionError.value = true;
@@ -335,41 +391,68 @@ createApp({
             }
         }, 800);
 
-        watch([days, expenses, notes, shoppingList, startDate, destination, exchangeRate, currencySymbol, travelers], () => { if (!isRemoteUpdate.value) saveToCloud(); }, { deep: true });
+        watch([days, expenses, notes, shoppingList, startDate, destination, exchangeRate, currencySymbol, travelers], () => { 
+            if (!isRemoteUpdate.value && isDataReady.value) saveToCloud(); 
+        }, { deep: true });
+
+        const applyDataToState = (d) => {
+            isRemoteUpdate.value = true;
+            days.value = d.days || [{items:[]}]; 
+            expenses.value = (d.expenses||[]).map(e => ({...e, beneficiaries: e.beneficiaries || [], type: e.type || 'shared', note: e.note || ''})); 
+            notes.value = (d.notes || []).map(n => ({ ...n, images: n.images || (n.image ? [n.image] : []) }));
+            const currentShops = shoppingList.value.reduce((acc, shop) => { acc[shop.id] = shop; return acc; }, {});
+            let rawShopping = d.shoppingList || [];
+            if (rawShopping.length > 0 && !rawShopping[0].items && !rawShopping[0].shopName) {
+                 shoppingList.value = [{ id: 'default_migrated', shopName: '未分類項目', items: rawShopping, expanded: true, tempItemInput: '', tempLinkInput: '', tempNoteInput: '', tempImages: [], showLinkInput: false, showNoteInput: false, isRenaming: false }];
+            } else {
+                 shoppingList.value = rawShopping.map(s => {
+                     const local = currentShops[s.id];
+                     return { ...s, items: (s.items || []).map(i => ({ ...i, images: i.images || (i.image ? [i.image] : []) })), expanded: local ? local.expanded : (s.expanded !== undefined ? s.expanded : true), tempItemInput: local ? local.tempItemInput : '', tempLinkInput: local ? local.tempLinkInput : '', tempNoteInput: local ? local.tempNoteInput : '', tempImages: local ? local.tempImages : [], showLinkInput: local ? local.showLinkInput : false, showNoteInput: local ? local.showNoteInput : false, isRenaming: local ? local.isRenaming : false };
+                 });
+            }
+            startDate.value = d.startDate || ''; 
+            destination.value = d.destination || ''; 
+            exchangeRate.value = d.exchangeRate || 0.21; 
+            currencySymbol.value = d.currencySymbol || '¥'; 
+            travelers.value = d.travelers || ['我', '旅伴'];
+            showWizard.value = !(destination.value && startDate.value);
+            
+            if (destination.value && startDate.value && TRIP_DOC_ID.value) {
+                saveToHistory(TRIP_DOC_ID.value, destination.value, startDate.value);
+            }
+            nextTick(() => { isRemoteUpdate.value = false; });
+        };
 
         const setupFirestoreListener = () => {
-            if (unsubscribeSnapshot) return; 
+            if (!TRIP_DOC_ID.value) {
+                showWizard.value = true;
+                return;
+            }
+            if (unsubscribeSnapshot) return;
+
+            tripDocRef = doc(db, "trips", TRIP_DOC_ID.value);
+
+            // 先載入本機快取，確保離線也能看見旅程
+            const cached = localStorage.getItem('tabi_cache_' + TRIP_DOC_ID.value);
+            if (cached) {
+                try {
+                    applyDataToState(JSON.parse(cached));
+                } catch(e) {}
+            }
+
             unsubscribeSnapshot = onSnapshot(tripDocRef, (docSnap) => {
                 permissionError.value = false; 
                 if (docSnap.exists()) {
                     const d = docSnap.data();
-                    isRemoteUpdate.value = true;
-                    days.value = d.days || [{items:[]}]; 
-                    expenses.value = (d.expenses||[]).map(e => ({...e, beneficiaries: e.beneficiaries || [], type: e.type || 'shared', note: e.note || ''})); 
-                    notes.value = (d.notes || []).map(n => ({ ...n, images: n.images || (n.image ? [n.image] : []) }));
-                    const currentShops = shoppingList.value.reduce((acc, shop) => { acc[shop.id] = shop; return acc; }, {});
-                    let rawShopping = d.shoppingList || [];
-                    if (rawShopping.length > 0 && !rawShopping[0].items && !rawShopping[0].shopName) {
-                         shoppingList.value = [{ id: 'default_migrated', shopName: '未分類項目', items: rawShopping, expanded: true, tempItemInput: '', tempLinkInput: '', tempNoteInput: '', tempImages: [], showLinkInput: false, showNoteInput: false, isRenaming: false }];
-                    } else {
-                         shoppingList.value = rawShopping.map(s => {
-                             const local = currentShops[s.id];
-                             return { ...s, items: (s.items || []).map(i => ({ ...i, images: i.images || (i.image ? [i.image] : []) })), expanded: local ? local.expanded : (s.expanded !== undefined ? s.expanded : true), tempItemInput: local ? local.tempItemInput : '', tempLinkInput: local ? local.tempLinkInput : '', tempNoteInput: local ? local.tempNoteInput : '', tempImages: local ? local.tempImages : [], showLinkInput: local ? local.showLinkInput : false, showNoteInput: local ? local.showNoteInput : false, isRenaming: local ? local.isRenaming : false };
-                         });
+                    localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(d));
+                    applyDataToState(d);
+                    isDataReady.value = true; // 資料確認完成載入，才允許後續保存
+                } else { 
+                    // 雲端無此旅程時，若也沒有本機快取才跳精靈
+                    if (!destination.value) {
+                        showWizard.value = true;
                     }
-                    startDate.value = d.startDate || ''; 
-                    destination.value = d.destination || ''; 
-                    exchangeRate.value = d.exchangeRate || 0.21; 
-                    currencySymbol.value = d.currencySymbol || '¥'; 
-                    travelers.value = d.travelers || ['我', '旅伴'];
-                    showWizard.value = !(destination.value && startDate.value);
-                    
-                    if (destination.value && startDate.value) {
-                        saveToHistory(TRIP_DOC_ID, destination.value, startDate.value);
-                    }
-                    
-                    nextTick(() => { isRemoteUpdate.value = false; });
-                } else { showWizard.value = true; }
+                }
             }, (error) => {
                 if (error.code === 'permission-denied') permissionError.value = true;
                 else showToast("連線資料庫失敗");
@@ -380,20 +463,20 @@ createApp({
             loadHistory();
             onAuthStateChanged(auth, (user) => {
                 if (user) setupFirestoreListener();
-                else signInAnonymously(auth).catch(() => setupFirestoreListener());
+                else signInAnonymously(auth).then(() => setupFirestoreListener()).catch(() => setupFirestoreListener());
             });
         });
         
         const retryConnection = () => { location.reload(); }
         const copyRules = () => { navigator.clipboard.writeText(rulesText); showToast("已複製規則！"); };
         
-        const confirmResetData = () => triggerConfirm('開啟新旅程', '確定要開啟全新的旅程嗎？這會產生一個全新的網址連結，目前的旅程資料會安全保留在雲端。', () => { 
-            window.location.href = window.location.pathname;
+        const confirmResetData = () => triggerConfirm('開啟新旅程', '確定要開啟全新的旅程嗎？目前的旅程資料會安全保留在雲端。', () => { 
+            window.location.href = window.location.pathname + '?new=1';
         });
 
         const exportJSON = () => {
             const dataToSave = {
-                tripId: TRIP_DOC_ID,
+                tripId: TRIP_DOC_ID.value,
                 days: days.value,
                 expenses: expenses.value,
                 notes: notes.value,
@@ -412,6 +495,42 @@ createApp({
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
             showToast('原始資料已成功匯出 JSON 備份！');
+        };
+
+        // 【防呆核心 5】JSON 備份檔案匯入功能
+        const triggerImportJSON = () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (!data.days && !data.destination) {
+                            return showToast('備份檔案格式不正確');
+                        }
+                        triggerConfirm('還原備份', `確定要還原「${data.destination || '此旅程'}」嗎？目前的內容將被覆蓋。`, async () => {
+                            if (data.tripId && data.tripId !== TRIP_DOC_ID.value) {
+                                localStorage.setItem('tabi_cache_' + data.tripId, JSON.stringify(data));
+                                saveToHistory(data.tripId, data.destination, data.startDate);
+                                switchTrip(data.tripId);
+                                return;
+                            }
+                            applyDataToState(data);
+                            isDataReady.value = true;
+                            await saveToCloud();
+                            showToast('備份已成功還原！');
+                        });
+                    } catch (err) {
+                        showToast('讀取失敗：' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
         };
 
         const triggerFileInput = (refName) => { const element = instance.refs[refName]; if (element) { if (Array.isArray(element)) element[0].click(); else element.click(); } };
@@ -506,9 +625,6 @@ createApp({
         const removeTraveler = (idx) => { if (editingTravelers.value.length > 1) { editingTravelers.value.splice(idx, 1); } else { showToast('At least one traveler required'); } };
         const saveTravelers = () => { const oldTravelers = [...travelers.value]; const newTravelers = [...editingTravelers.value]; expenses.value.forEach(exp => { const payerIdx = oldTravelers.indexOf(exp.payer); if (payerIdx !== -1 && payerIdx < newTravelers.length) exp.payer = newTravelers[payerIdx]; if (exp.beneficiaries && exp.beneficiaries.length > 0) exp.beneficiaries = exp.beneficiaries.map(b => { const bIdx = oldTravelers.indexOf(b); return (bIdx !== -1 && bIdx < newTravelers.length) ? newTravelers[bIdx] : b; }).filter(b => newTravelers.includes(b)); }); travelers.value = newTravelers; showTravelerModal.value = false; showToast('Travelers Updated'); };
 
-        // -------------------------------------------------------------------
-        // 修正 3：重新設計 PDF 匯出版面，改用專業「表格化設計」並加入「最終結算」
-        // -------------------------------------------------------------------
         const exportPDF = () => {
             showToast('Generating PDF...'); 
             const element = document.createElement('div'); 
@@ -516,7 +632,6 @@ createApp({
             element.style.fontFamily = '"Noto Serif TC", "Noto Sans TC", sans-serif'; 
             element.style.color = '#2C3032';
             
-            // 標題區塊
             let html = `
                 <div style="text-align:center; margin-bottom: 40px;">
                     <h1 style="font-size:36px; font-weight:900; margin-bottom:5px; color:#2C3032; letter-spacing: 2px;">${destination.value || 'Trip'}</h1>
@@ -525,7 +640,6 @@ createApp({
                 </div>
             `;
             
-            // 1. 行程表區塊 (表格化)
             html += `<h2 style="font-size:20px; border-bottom: 2px solid #C5A059; padding-bottom: 8px; margin-bottom:20px; color:#2C3032;">Schedule</h2>`;
             days.value.forEach((day, idx) => {
                 html += `<div style="margin-bottom: 20px; border: 1px solid #E0E0E0; border-radius: 8px; overflow:hidden;">`;
@@ -551,14 +665,10 @@ createApp({
                 html += `</div>`;
             });
 
-            // 換頁
             html += `<div class="html2pdf__page-break"></div>`;
-            
-            // 2. 財務總結區塊
             html += `<div style="page-break-before: always; padding-top: 20px;">`;
             html += `<h2 style="font-size:22px; border-bottom: 2px solid #C5A059; padding-bottom: 10px; margin-bottom:20px; color:#2C3032;">Financial Summary</h2>`;
 
-            // 總花費
             html += `
                 <div style="background-color: #F4F2EE; padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align:center;">
                     <p style="font-size: 12px; color: #5F6368; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px;">Grand Total</p>
@@ -567,10 +677,7 @@ createApp({
                 </div>
             `;
 
-            // 成員分攤 與 最終結算 (左右並排)
             html += `<div style="display:flex; justify-content: space-between; margin-bottom: 30px; gap: 20px;">`;
-            
-            // 左側：Member Expenses
             html += `<div style="flex: 1; border: 1px solid #E0E0E0; border-radius: 12px; padding: 15px;">`;
             html += `<h3 style="font-size:14px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; text-align:center;">Member Share (個人分攤)</h3>`;
             travelers.value.forEach(t => {
@@ -582,7 +689,6 @@ createApp({
             });
             html += `</div>`;
 
-            // 右側：Settlement (結算)
             html += `<div style="flex: 1; border: 1px solid #E0E0E0; border-radius: 12px; padding: 15px; background-color: #FAFAFA;">`;
             html += `<h3 style="font-size:14px; color: #5F6368; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; text-align:center;">Settlement (最終結算)</h3>`;
             if (debts.value.length > 0) {
@@ -596,21 +702,18 @@ createApp({
                  html += `<div style="text-align:center; color:#9CA3AF; font-size: 12px; margin-top:20px;">無須結算</div>`;
             }
             html += `</div>`;
-            html += `</div>`; // 結束左右並排
+            html += `</div>`;
 
-            // 3. 支出明細區塊 (表格化)
             html += `<h2 style="font-size:18px; color: #2C3032; border-bottom: 2px solid #E0E0E0; padding-bottom: 10px; margin-bottom: 15px; margin-top:30px;">Expense Details (支出明細)</h2>`;
 
             if (groupedExpenses.value.length > 0) {
                 groupedExpenses.value.forEach(group => {
                     html += `<div style="margin-bottom: 20px; page-break-inside: avoid;">`;
-                    // 日期標題
                     html += `<div style="background-color: #5F6368; color: white; padding: 8px 12px; font-size: 13px; font-weight: bold; border-radius: 6px 6px 0 0; display:flex; justify-content: space-between;">
                                 <span>${group.displayDate}</span>
                                 <span>Subtotal: ${currencySymbol.value} ${group.total.toLocaleString()}</span>
                              </div>`;
 
-                    // 表格內容
                     html += `<table style="width: 100%; border-collapse: collapse; font-size: 12px; border-left: 1px solid #E0E0E0; border-right: 1px solid #E0E0E0; border-bottom: 1px solid #E0E0E0;">`;
                     group.items.forEach((exp, i) => {
                         let typeText = exp.type === 'shared' ? '共同' : (exp.type === 'individual' && exp.beneficiaries?.[0] !== exp.payer ? '代墊' : '自費');
@@ -653,7 +756,7 @@ createApp({
         return { 
             currentTab, currentDayIndex, days, currentDayItems, totalExpense, filteredExpenses, notes, sortedNotes, destination, currencySymbol, startDate, exchangeRate, showWizard, tempDestination, tempStartDate, detectedInfo, finishWizard, detectCurrency, showItemModal, showExpenseModal, showSettingsModal, showNoteModal, closeAllModals, getModalTitle, formItem, formExpense, formNote, tempHour, tempMinute, travelers, saveItem, saveExpense, saveNote, editItem, editExpense, editNote, confirmDeleteItem, confirmDeleteExpense, confirmDeleteNote, onFabClick, confirmResetData, addDay, confirmDeleteDay, openMap, searchGoogleMaps, renderNote, toast, confirmModal, executeConfirm, toTWD, getDayDate,
             getDayOfWeek, toggleExpand, expandedItemId, isEditing, isExpenseEditing, isNoteEditing, onTouchDragStart, onTouchDragMove, onTouchDragEnd, dragIndex, dateContainer, onDateDragStart, onDateDragMove, onDateDragEnd, getMemberDetails, statistics, debts, toggleBeneficiary, groupedExpenses, tempHourExp, tempMinuteExp, showMemberStats, collapsedDates, toggleDateGroup, showTravelerModal, openTravelerModal, editingTravelers, addTraveler, removeTraveler, saveTravelers, isSyncing, permissionError, retryConnection, rulesText, copyRules, expandedNoteId, toggleExpandNote, onMouseDragStart, onMouseDragMove, onMouseDragEnd, shoppingList, newShopName, addShop, removeShop, addItemToShop, removeItem, toggleItem, toggleShop, enableShopRename, saveShopRename, showShoppingEditModal, editForm, openEditItemModal, saveEditItem, onNoteImageChange, onShopItemImageChange, onEditItemImageChange, viewingImage, viewImage, triggerFileInput, exportPDF, exportJSON,
-            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink, formatUrl
+            TRIP_DOC_ID, showHistoryModal, tripHistory, switchTrip, deleteFromHistory, copyShareLink, formatUrl, joinTripPrompt, triggerImportJSON
         };
     }
 }).mount('#app');
