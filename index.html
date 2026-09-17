@@ -25,14 +25,14 @@
                     },
                     colors: {
                         theme: { 
-                            main: '#2C3032',       // 墨黑
-                            sub: '#5F6368',        // 深灰
-                            accent: '#C5A059',     // 金茶色
-                            bg: '#F4F2EE',         // 生成色
+                            main: '#2C3032',
+                            sub: '#5F6368',
+                            accent: '#C5A059',
+                            bg: '#F4F2EE',
                             white: '#FFFFFF',
                             border: '#E0E0E0',
                             danger: '#A65652',
-                            input: '#F0F2F2'      // 輸入框背景
+                            input: '#F0F2F2'
                         }
                     },
                     boxShadow: { 
@@ -534,8 +534,22 @@
 
         <div v-if="showHistoryModal" class="modal-mask" @click.self="closeAllModals">
             <div class="modal-card">
-                <h3 class="text-center text-lg font-serif font-bold text-theme-main tracking-widest mb-6 border-b border-gray-100 pb-4">我的旅程</h3>
-                <div class="space-y-3 max-h-[45vh] overflow-y-auto no-scrollbar pb-4">
+                <h3 class="text-center text-lg font-serif font-bold text-theme-main tracking-widest mb-4 border-b border-gray-100 pb-3">我的旅程</h3>
+                
+                <!-- 旅伴共用暗號設定區 -->
+                <div class="mb-4 bg-theme-input p-3 rounded-2xl border border-theme-border/50">
+                    <div class="text-[10px] text-theme-sub uppercase tracking-wider font-bold mb-1.5 flex justify-between items-center">
+                        <span><i class="fas fa-user-friends text-theme-accent mr-1"></i> 旅伴共用暗號</span>
+                        <span class="text-theme-accent text-[9px] font-bold" v-if="channelKey">已連線同步</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <input v-model="tempChannelKey" placeholder="輸入兩人共同暗號 (如: japan2026)" class="bg-white px-3 py-2 rounded-xl text-xs flex-1 outline-none font-sans text-theme-main">
+                        <button @click="saveChannelKey" class="px-3.5 py-2 bg-theme-main text-white text-xs font-bold rounded-xl active:scale-95 transition-transform shrink-0 shadow-sm">儲存</button>
+                    </div>
+                    <p class="text-[9px] text-gray-400 mt-1.5 leading-tight">雙方輸入相同暗號，所有旅程清單將自動同步，無需再傳送連結。</p>
+                </div>
+
+                <div class="space-y-3 max-h-[38vh] overflow-y-auto no-scrollbar pb-3">
                     <div v-if="tripHistory.length === 0" class="text-center text-gray-400 text-xs py-4">
                         尚無其他旅程紀錄
                     </div>
