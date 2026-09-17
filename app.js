@@ -17,7 +17,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// 解析目前網址或歷史紀錄中的 Trip ID，若無則回傳空值（不再自動隨機建立，防止產生幽靈空白旅程）
+// 解析目前網址或歷史紀錄中的 Trip ID，若無則回傳空值（不再自動隨機生成幽靈旅程）
 function resolveInitialTripId() {
     const urlParams = new URLSearchParams(window.location.search);
     let tripId = urlParams.get('trip');
@@ -95,7 +95,7 @@ createApp({
         const isRemoteUpdate = ref(false); 
         const permissionError = ref(false);
 
-        // 【防呆核心 1】雲端載入鎖定門閥：在雲端資料確認載入之前，100% 阻斷上傳，徹底杜絕空資料覆蓋
+        // 【關鍵防呆】資料尚未確認自雲端或本地快取載入前，絕對禁止觸發上傳
         const isInitialDataLoaded = ref(false);
         let unsubscribeSnapshot = null;
 
@@ -146,9 +146,9 @@ createApp({
             window.location.href = window.location.pathname + '?trip=' + id;
         };
 
-        // 【防呆核心 2】加入旅伴分享的旅程代碼或網址
+        // 加入旅伴分享的專屬網址或旅程代碼
         const joinTripPrompt = () => {
-            const input = prompt("請貼上旅伴分享的「旅程專屬網址」或輸入「旅程代碼 (例如 trip_xxxx)」：");
+            const input = prompt("請貼上旅伴分享的「專屬網址」或輸入「旅程代碼 (例如 trip_xxxx)」：");
             if (!input) return;
             let targetId = input.trim();
             if (targetId.includes('trip=')) {
@@ -183,7 +183,7 @@ createApp({
             });
         };
 
-        // 【防呆核心 3】強效圖片壓縮：單圖上限壓至 40KB，徹底根治突破 Firestore 1MB 上限問題
+        // 圖片壓縮控制：單圖上限壓至約 40KB，徹底根治突破 Firestore 1MB 上限問題
         const compressImage = (file) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -205,7 +205,7 @@ createApp({
                         ctx.drawImage(img, 0, 0, width, height);
                         let quality = 0.6; 
                         let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        const MAX_CHAR_LENGTH = 45000; // 約 35-40KB，存 20 張也不會超過 1MB
+                        const MAX_CHAR_LENGTH = 45000; 
                         while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.2) {
                             quality -= 0.1;
                             dataUrl = canvas.toDataURL('image/jpeg', quality);
@@ -342,7 +342,7 @@ createApp({
         const searchGoogleMaps = (q) => q ? openMap(q) : showToast('請輸入地點');
         const detectCurrency = () => { const info = Object.entries(CURRENCY_MAP).find(([k]) => tempDestination.value.toLowerCase().includes(k))?.[1]; if (info) { exchangeRate.value = info.r; currencySymbol.value = info.s; detectedInfo.value = `${info.n} (${info.s}) ≈ ${info.r}`; } };
         
-        // 完成嚮導時正式生成 ID 並立即綁定網址
+        // 完成嚮導時正式建立 ID 並同步網址
         const finishWizard = () => { 
             if(!tempDestination.value || !tempStartDate.value) return showToast('請輸入完整資訊'); 
             
@@ -360,14 +360,14 @@ createApp({
             if (!detectedInfo.value) detectCurrency(); 
             
             saveToHistory(TRIP_DOC_ID.value, destination.value, startDate.value);
-            isInitialDataLoaded.value = true; // 正式解鎖存檔權限
+            isInitialDataLoaded.value = true;
             saveToCloud();
         };
 
-        // 【防呆核心 4】嚴格守門的雲端同步機制與容量檢測
+        // 雲端同步核心：未載入完成不存、空資料不存、自動更新本機離線備份
         const saveToCloud = debounce(async () => {
             if (isRemoteUpdate.value) return;
-            if (!isInitialDataLoaded.value) return; // 雲端尚未載入前，絕對不准覆蓋
+            if (!isInitialDataLoaded.value) return; 
             if (!TRIP_DOC_ID.value || !destination.value.trim()) return; 
 
             isSyncing.value = true;
@@ -386,14 +386,13 @@ createApp({
                     lastUpdated: Date.now()
                 };
 
-                // 容量預警（Firestore 1MB 上限預防）
+                // 容量預警（防止突破 Firestore 1MB 上限）
                 const payloadSize = new Blob([JSON.stringify(dataToSave)]).size;
                 if (payloadSize > 850000) {
                     showToast("警告：旅程資料量即將超過雲端上限，請刪除部分圖片！");
                 }
 
                 await setDoc(tripDocRef, dataToSave, { merge: true });
-                // 同步本機雙重備份，即使出國搭機斷網也絕對不丟失
                 localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(dataToSave));
                 isSyncing.value = false;
             } catch (e) {
@@ -444,7 +443,7 @@ createApp({
 
             tripDocRef = doc(db, "trips", TRIP_DOC_ID.value);
 
-            // 先載入本機快取，確保離線也能看見旅程
+            // 優先載入本地離線快取，離線也能看
             const cached = localStorage.getItem('tabi_cache_' + TRIP_DOC_ID.value);
             if (cached) {
                 try {
@@ -458,9 +457,8 @@ createApp({
                     const d = docSnap.data();
                     localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(d));
                     applyDataToState(d);
-                    isInitialDataLoaded.value = true; // 雲端確認載入完成，解除上傳鎖定
+                    isInitialDataLoaded.value = true;
                 } else { 
-                    // 雲端若無此 ID，且本地也無快取，才進入開新旅程流程
                     if (!destination.value) {
                         showWizard.value = true;
                     }
@@ -472,7 +470,6 @@ createApp({
             });
         };
 
-        // 確保身分驗證完成後才掛載 Listener，防止 permission-denied 覆蓋
         onMounted(async () => {
             loadHistory();
             onAuthStateChanged(auth, (user) => {
@@ -495,7 +492,8 @@ createApp({
             window.location.href = window.location.pathname + '?new=1';
         });
 
-        const exportJSON = () => {
+        // 升級版匯出：優先調用手機原生分享選單（可一鍵選「儲存到檔案」、AirDrop 或 LINE），電腦端則自動下載 Blob
+        const exportJSON = async () => {
             const dataToSave = {
                 tripId: TRIP_DOC_ID.value,
                 days: days.value,
@@ -508,17 +506,40 @@ createApp({
                 currencySymbol: currencySymbol.value,
                 travelers: travelers.value
             };
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataToSave));
+
+            const fileName = `${destination.value || 'Tabi'}_backup.json`;
+            const jsonStr = JSON.stringify(dataToSave, null, 2);
+            const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
+            const backupFile = new File([jsonBlob], fileName, { type: 'application/json' });
+
+            // 手機瀏覽器原生分享面板
+            if (navigator.canShare && navigator.canShare({ files: [backupFile] })) {
+                try {
+                    await navigator.share({
+                        files: [backupFile],
+                        title: `${destination.value || '旅程'} 備份檔`,
+                        text: '這是我的旅程 JSON 備份檔'
+                    });
+                    showToast('備份檔已成功儲存！');
+                    return;
+                } catch (err) {
+                    if (err.name === 'AbortError') return; 
+                }
+            }
+
+            // 電腦端或一般瀏覽器：Blob 連結下載
+            const objectUrl = URL.createObjectURL(jsonBlob);
             const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", `${destination.value || 'Tabi'}_backup.json`);
+            downloadAnchorNode.href = objectUrl;
+            downloadAnchorNode.download = fileName;
             document.body.appendChild(downloadAnchorNode);
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
             showToast('原始資料已成功匯出 JSON 備份！');
         };
 
-        // JSON 備份檔案匯入功能
+        // JSON 備份還原
         const triggerImportJSON = () => {
             const input = document.createElement('input');
             input.type = 'file';
