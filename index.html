@@ -492,7 +492,7 @@
 
                                         <div v-if="shop.showNoteInput" class="animate-fade-in">
                                             <div class="relative">
-                                                <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs">
+                                                <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                                                     <i class="fas fa-pen"></i>
                                                 </div>
                                                 <input 
@@ -536,20 +536,22 @@
             <div class="modal-card">
                 <h3 class="text-center text-lg font-serif font-bold text-theme-main tracking-widest mb-4 border-b border-gray-100 pb-3">我的旅程</h3>
                 
-                <!-- 旅伴共用暗號設定區 -->
+                <!-- 旅伴共用暗號設定區 (已修復破版問題) -->
                 <div class="mb-4 bg-theme-input p-3 rounded-2xl border border-theme-border/50">
-                    <div class="text-[10px] text-theme-sub uppercase tracking-wider font-bold mb-1.5 flex justify-between items-center">
+                    <div class="text-[10px] text-theme-sub uppercase tracking-wider font-bold mb-2 flex justify-between items-center">
                         <span><i class="fas fa-user-friends text-theme-accent mr-1"></i> 旅伴共用暗號</span>
                         <span class="text-theme-accent text-[9px] font-bold" v-if="channelKey">已連線同步</span>
                     </div>
-                    <div class="flex gap-2">
-                        <input v-model="tempChannelKey" placeholder="輸入兩人共同暗號 (如: japan2026)" class="bg-white px-3 py-2 rounded-xl text-xs flex-1 outline-none font-sans text-theme-main">
-                        <button @click="saveChannelKey" class="px-3.5 py-2 bg-theme-main text-white text-xs font-bold rounded-xl active:scale-95 transition-transform shrink-0 shadow-sm">儲存</button>
+                    <div class="space-y-2">
+                        <input v-model="tempChannelKey" placeholder="輸入兩人共同暗號 (如: japan2026)" class="w-full bg-white px-3 py-2 rounded-xl text-xs outline-none font-sans text-theme-main border border-gray-200/60">
+                        <button @click="saveChannelKey" class="w-full py-2.5 bg-theme-main text-white text-xs font-bold rounded-xl active:scale-95 transition-transform shadow-sm flex items-center justify-center gap-1">
+                            <i class="fas fa-check text-[10px]"></i> 儲存共用暗號
+                        </button>
                     </div>
                     <p class="text-[9px] text-gray-400 mt-1.5 leading-tight">雙方輸入相同暗號，所有旅程清單將自動同步，無需再傳送連結。</p>
                 </div>
 
-                <div class="space-y-3 max-h-[38vh] overflow-y-auto no-scrollbar pb-3">
+                <div class="space-y-3 max-h-[35vh] overflow-y-auto no-scrollbar pb-3">
                     <div v-if="tripHistory.length === 0" class="text-center text-gray-400 text-xs py-4">
                         尚無其他旅程紀錄
                     </div>
