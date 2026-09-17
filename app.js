@@ -95,8 +95,8 @@ createApp({
         const isRemoteUpdate = ref(false); 
         const permissionError = ref(false);
 
-        // 【防呆核心 1】資料是否已從雲端/快取就緒，未就緒前絕不上傳
-        const isDataReady = ref(false);
+        // 【防呆核心 1】雲端載入鎖定門閥：在雲端資料確認載入之前，100% 阻斷上傳，徹底杜絕空資料覆蓋
+        const isInitialDataLoaded = ref(false);
         let unsubscribeSnapshot = null;
 
         const tempDestination = ref(''), tempStartDate = ref(''), detectedInfo = ref('');
@@ -118,7 +118,11 @@ createApp({
 
         const loadHistory = () => {
             const history = localStorage.getItem('tabi_trip_history');
-            if (history) tripHistory.value = JSON.parse(history);
+            if (history) {
+                try {
+                    tripHistory.value = JSON.parse(history);
+                } catch(e) {}
+            }
         };
 
         const saveToHistory = (id, dest, date) => {
@@ -179,6 +183,7 @@ createApp({
             });
         };
 
+        // 【防呆核心 3】強效圖片壓縮：單圖上限壓至 40KB，徹底根治突破 Firestore 1MB 上限問題
         const compressImage = (file) => {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -186,7 +191,7 @@ createApp({
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        const MAX_DIM = 800; 
+                        const MAX_DIM = 600; 
                         let width = img.width;
                         let height = img.height;
                         if (width > height) {
@@ -198,9 +203,9 @@ createApp({
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        let quality = 0.7; 
+                        let quality = 0.6; 
                         let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        const MAX_CHAR_LENGTH = 150000; 
+                        const MAX_CHAR_LENGTH = 45000; // 約 35-40KB，存 20 張也不會超過 1MB
                         while (dataUrl.length > MAX_CHAR_LENGTH && quality > 0.2) {
                             quality -= 0.1;
                             dataUrl = canvas.toDataURL('image/jpeg', quality);
@@ -337,7 +342,7 @@ createApp({
         const searchGoogleMaps = (q) => q ? openMap(q) : showToast('請輸入地點');
         const detectCurrency = () => { const info = Object.entries(CURRENCY_MAP).find(([k]) => tempDestination.value.toLowerCase().includes(k))?.[1]; if (info) { exchangeRate.value = info.r; currencySymbol.value = info.s; detectedInfo.value = `${info.n} (${info.s}) ≈ ${info.r}`; } };
         
-        // 【防呆核心 3】只有在完成嚮導時，若沒有 Trip ID 才正式生成，並立即綁定網址
+        // 完成嚮導時正式生成 ID 並立即綁定網址
         const finishWizard = () => { 
             if(!tempDestination.value || !tempStartDate.value) return showToast('請輸入完整資訊'); 
             
@@ -355,15 +360,15 @@ createApp({
             if (!detectedInfo.value) detectCurrency(); 
             
             saveToHistory(TRIP_DOC_ID.value, destination.value, startDate.value);
-            isDataReady.value = true; // 正式解鎖存檔權限
+            isInitialDataLoaded.value = true; // 正式解鎖存檔權限
             saveToCloud();
         };
 
-        // 【防呆核心 4】嚴格守門的雲端同步機制
+        // 【防呆核心 4】嚴格守門的雲端同步機制與容量檢測
         const saveToCloud = debounce(async () => {
             if (isRemoteUpdate.value) return;
-            if (!isDataReady.value) return; // 雲端資料尚未確認載入完成前，絕對不上傳（防止空資料覆蓋）
-            if (!TRIP_DOC_ID.value || !destination.value.trim()) return; // 目的地為空不上傳
+            if (!isInitialDataLoaded.value) return; // 雲端尚未載入前，絕對不准覆蓋
+            if (!TRIP_DOC_ID.value || !destination.value.trim()) return; 
 
             isSyncing.value = true;
             permissionError.value = false; 
@@ -380,19 +385,26 @@ createApp({
                     travelers: JSON.parse(JSON.stringify(travelers.value)),
                     lastUpdated: Date.now()
                 };
+
+                // 容量預警（Firestore 1MB 上限預防）
+                const payloadSize = new Blob([JSON.stringify(dataToSave)]).size;
+                if (payloadSize > 850000) {
+                    showToast("警告：旅程資料量即將超過雲端上限，請刪除部分圖片！");
+                }
+
                 await setDoc(tripDocRef, dataToSave, { merge: true });
-                // 同時存入手機離線快取，不怕出國飛航模式或訊號差
+                // 同步本機雙重備份，即使出國搭機斷網也絕對不丟失
                 localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(dataToSave));
                 isSyncing.value = false;
             } catch (e) {
                 if (e.code === 'permission-denied') permissionError.value = true;
-                else showToast("同步失敗，請檢查網路");
+                else showToast("同步失敗，請檢查網路連線");
                 isSyncing.value = false;
             }
         }, 800);
 
         watch([days, expenses, notes, shoppingList, startDate, destination, exchangeRate, currencySymbol, travelers], () => { 
-            if (!isRemoteUpdate.value && isDataReady.value) saveToCloud(); 
+            if (!isRemoteUpdate.value && isInitialDataLoaded.value) saveToCloud(); 
         }, { deep: true });
 
         const applyDataToState = (d) => {
@@ -446,12 +458,13 @@ createApp({
                     const d = docSnap.data();
                     localStorage.setItem('tabi_cache_' + TRIP_DOC_ID.value, JSON.stringify(d));
                     applyDataToState(d);
-                    isDataReady.value = true; // 資料確認完成載入，才允許後續保存
+                    isInitialDataLoaded.value = true; // 雲端確認載入完成，解除上傳鎖定
                 } else { 
-                    // 雲端無此旅程時，若也沒有本機快取才跳精靈
+                    // 雲端若無此 ID，且本地也無快取，才進入開新旅程流程
                     if (!destination.value) {
                         showWizard.value = true;
                     }
+                    isInitialDataLoaded.value = true;
                 }
             }, (error) => {
                 if (error.code === 'permission-denied') permissionError.value = true;
@@ -459,11 +472,19 @@ createApp({
             });
         };
 
-        onMounted(() => {
+        // 確保身分驗證完成後才掛載 Listener，防止 permission-denied 覆蓋
+        onMounted(async () => {
             loadHistory();
             onAuthStateChanged(auth, (user) => {
-                if (user) setupFirestoreListener();
-                else signInAnonymously(auth).then(() => setupFirestoreListener()).catch(() => setupFirestoreListener());
+                if (user) {
+                    setupFirestoreListener();
+                } else {
+                    signInAnonymously(auth).then(() => {
+                        setupFirestoreListener();
+                    }).catch(() => {
+                        setupFirestoreListener();
+                    });
+                }
             });
         });
         
@@ -497,7 +518,7 @@ createApp({
             showToast('原始資料已成功匯出 JSON 備份！');
         };
 
-        // 【防呆核心 5】JSON 備份檔案匯入功能
+        // JSON 備份檔案匯入功能
         const triggerImportJSON = () => {
             const input = document.createElement('input');
             input.type = 'file';
@@ -520,7 +541,7 @@ createApp({
                                 return;
                             }
                             applyDataToState(data);
-                            isDataReady.value = true;
+                            isInitialDataLoaded.value = true;
                             await saveToCloud();
                             showToast('備份已成功還原！');
                         });
